@@ -1,122 +1,216 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import React, { useState, useEffect } from 'react';
 
-function App() {
-  const [count, setCount] = useState(0)
+const API_BASE_URL = 'https://lego-inventory-backend.vercel.app';
+
+export default function App() {
+  const [sets, setSets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+
+  // Form state
+  const [setNum, setSetNum] = useState('');
+  const [name, setName] = useState('');
+  const [theme, setTheme] = useState('');
+  const [pieces, setPieces] = useState('');
+
+  // Fetch collection from FastAPI backend
+  const fetchInventory = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE_URL}/sets`);
+      if (!res.ok) throw new Error('Failed to fetch inventory');
+      const data = await res.json();
+      setSets(data);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchInventory();
+  }, []);
+
+  // Add new LEGO set
+  const handleAddSet = async (e) => {
+    e.preventDefault();
+    if (!setNum || !name) return;
+
+    const newSet = {
+      set_num: setNum,
+      name: name,
+      theme: theme || 'Unassigned',
+      pieces: parseInt(pieces, 10) || 0,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/sets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSet),
+      });
+
+      if (res.ok) {
+        setSetNum('');
+        setName('');
+        setTheme('');
+        setPieces('');
+        fetchInventory();
+      } else {
+        alert('Failed to add set.');
+      }
+    } catch (err) {
+      alert('Error connecting to backend server.');
+    }
+  };
+
+  // Delete set
+  const handleDelete = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sets/${id}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        fetchInventory();
+      }
+    } catch (err) {
+      alert('Failed to delete item.');
+    }
+  };
+
+  const filteredSets = sets.filter(
+    (item) =>
+      item.name.toLowerCase().includes(search.toLowerCase()) ||
+      item.set_num.toLowerCase().includes(search.toLowerCase()) ||
+      item.theme.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <h1 style={styles.title}>🧱 LEGO Collection Tracker</h1>
+        <p style={styles.subtitle}>Mobile Inventory PWA</p>
+      </header>
 
-      <div className="ticks"></div>
+      {/* Add New Set Form */}
+      <div style={styles.card}>
+        <h2 style={styles.cardTitle}>Add New Set</h2>
+        <form onSubmit={handleAddSet} style={styles.form}>
+          <input
+            style={styles.input}
+            type="text"
+            placeholder="Set Number (e.g. 75192)"
+            value={setNum}
+            onChange={(e) => setSetNum(e.target.value)}
+            required
+          />
+          <input
+            style={styles.input}
+            type="text"
+            placeholder="Set Name (e.g. Millennium Falcon)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+          <input
+            style={styles.input}
+            type="text"
+            placeholder="Theme (e.g. Star Wars)"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+          />
+          <input
+            style={styles.input}
+            type="number"
+            placeholder="Piece Count"
+            value={pieces}
+            onChange={(e) => setPieces(e.target.value)}
+          />
+          <button style={styles.button} type="submit">
+            Add to Inventory
+          </button>
+        </form>
+      </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      {/* Search & Inventory List */}
+      <div style={styles.card}>
+        <div style={styles.listHeader}>
+          <h2 style={styles.cardTitle}>Collection ({sets.length})</h2>
+          <input
+            style={styles.searchInput}
+            type="text"
+            placeholder="Search sets or themes..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {loading && <p style={styles.status}>Loading collection...</p>}
+        {error && <p style={styles.error}>Error: {error}</p>}
+
+        {!loading && !error && filteredSets.length === 0 && (
+          <p style={styles.status}>No LEGO sets found in inventory.</p>
+        )}
+
+        <ul style={styles.list}>
+          {filteredSets.map((item) => (
+            <li key={item.id || item.set_num} style={styles.listItem}>
+              <div>
+                <strong style={styles.itemTitle}>
+                  {item.set_num} - {item.name}
+                </strong>
+                <div style={styles.itemMeta}>
+                  <span>Theme: {item.theme}</span> •{' '}
+                  <span>{item.pieces} pieces</span>
+                </div>
+              </div>
+              <button
+                style={styles.deleteBtn}
+                onClick={() => handleDelete(item.id)}
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
-export default App
+const styles = {
+  container: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    maxWidth: '600px',
+    margin: '0 auto',
+    padding: '16px',
+    backgroundColor: '#f8fafc',
+    minHeight: '100vh',
+  },
+  header: {
+    textAlign: 'center',
+    marginBottom: '20px',
+  },
+  title: {
+    fontSize: '24px',
+    color: '#0f172a',
+    margin: '0 0 4px 0',
+  },
+  subtitle: {
+    color: '#64748b',
+    margin: 0,
+    fontSize: '14px',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    padding: '16px',
+    marginBottom: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  cardTitle: {
+    fontSize: '18px',
+    margin: '0 0 12px 0',
