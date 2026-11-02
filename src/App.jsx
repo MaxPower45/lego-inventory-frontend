@@ -23,6 +23,18 @@ export default function App() {
     fetchSets();
   }, []);
 
+  const handleClearDatabase = async () => {
+    if (window.confirm("Are you sure you want to clear the current list before re-importing?")) {
+      try {
+        await fetch(`${API_URL}/sets/all`, { method: 'DELETE' });
+        await fetchSets();
+        setStatusMsg("Database cleared.");
+      } catch (err) {
+        alert("Failed to clear database.");
+      }
+    }
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -31,18 +43,15 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const text = event.target.result;
-        // Handle Windows (\r\n) and Unix (\n) line breaks
         const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
         if (lines.length < 2) {
           alert("CSV file appears empty or missing data rows.");
           return;
         }
 
-        // Auto-detect semicolon vs comma delimiter
         const firstLine = lines[0];
         const delimiter = firstLine.includes(';') ? ';' : ',';
 
-        // Normalize header text
         const rawHeaders = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
 
         const parsedSets = [];
@@ -56,7 +65,6 @@ export default function App() {
             row[header] = values[index] || "";
           });
 
-          // Match exact spreadsheet headers
           const setNum = row["set_number"] || row["set_num"] || row["set #"] || row["number"] || "";
           const setName = row["set_name"] || row["name"] || row["title"] || "";
           const shelf = row["new shelf"] || row["shelf"] || row["location"] || "";
@@ -88,7 +96,7 @@ export default function App() {
           return;
         }
 
-        setStatusMsg(`Uploading ${parsedSets.length} sets...`);
+        setStatusMsg(`Uploading ${parsedSets.length} collection entries...`);
 
         const res = await fetch(`${API_URL}/sets/bulk`, {
           method: 'POST',
@@ -97,8 +105,8 @@ export default function App() {
         });
 
         if (res.ok) {
-          alert(`Successfully imported ${parsedSets.length} sets!`);
-          setStatusMsg(`Successfully imported ${parsedSets.length} sets!`);
+          alert(`Successfully imported ${parsedSets.length} individual entries!`);
+          setStatusMsg(`Imported ${parsedSets.length} entries!`);
           await fetchSets();
           setTimeout(() => {
             setShowImporter(false);
@@ -136,15 +144,23 @@ export default function App() {
           onClick={() => setShowImporter(!showImporter)}
           style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontSize: '0.85em' }}
         >
-          {showImporter ? "Close Import" : "⚙️ Import CSV"}
+          {showImporter ? "Close Tools" : "⚙️ Tools"}
         </button>
       </div>
 
-      {/* Collapsible Importer Box */}
+      {/* Collapsible Importer & Tools Box */}
       {showImporter && (
         <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e9ecef' }}>
-          <h4 style={{ margin: '0 0 10px 0' }}>Import Sets from CSV</h4>
-          <input type="file" accept=".csv" onChange={handleFileUpload} style={{ width: '100%' }} />
+          <h4 style={{ margin: '0 0 10px 0' }}>Import / Reset Collection</h4>
+          <input type="file" accept=".csv" onChange={handleFileUpload} style={{ width: '100%', marginBottom: '12px' }} />
+          <div>
+            <button 
+              onClick={handleClearDatabase}
+              style={{ padding: '6px 10px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8em' }}
+            >
+              Clear Current Database
+            </button>
+          </div>
           {statusMsg && <p style={{ color: '#0d6efd', marginTop: '10px', fontSize: '0.9em', margin: '10px 0 0 0' }}>{statusMsg}</p>}
         </div>
       )}
@@ -162,19 +178,19 @@ export default function App() {
 
       {/* Set Count Header */}
       <div style={{ fontSize: '0.9em', color: '#666', marginBottom: '12px', fontWeight: '600' }}>
-        TOTAL SETS: {filteredSets.length}
+        TOTAL ENTRIES: {filteredSets.length}
       </div>
 
       {/* Collection List */}
       {filteredSets.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', background: '#f9f9f9', borderRadius: '8px' }}>
           No LEGO sets found in inventory.<br />
-          <small>Tap <b>⚙️ Import CSV</b> at the top to select your LegoSpreadsheet.csv file.</small>
+          <small>Tap <b>⚙️ Tools</b> at the top to select your LegoSpreadsheet.csv file.</small>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {filteredSets.map((item) => (
-            <div key={item.id || item.set_num} style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '14px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          {filteredSets.map((item, idx) => (
+            <div key={item.id || idx} style={{ background: '#fff', border: '1px solid #e0e0e0', padding: '14px', borderRadius: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
               <div style={{ fontWeight: 'bold', fontSize: '1.05em', color: '#111' }}>{item.name}</div>
               <div style={{ fontSize: '0.85em', color: '#666', marginTop: '2px' }}>Set #{item.set_num}</div>
               
@@ -182,6 +198,7 @@ export default function App() {
                 {item.shelf && <span style={{ background: '#e9ecef', padding: '3px 8px', borderRadius: '4px' }}><b>Shelf:</b> {item.shelf}</span>}
                 {item.store && <span style={{ background: '#e9ecef', padding: '3px 8px', borderRadius: '4px' }}><b>Store:</b> {item.store}</span>}
                 {item.purchase_price && <span style={{ background: '#e9ecef', padding: '3px 8px', borderRadius: '4px' }}><b>Price:</b> {item.purchase_price}</span>}
+                {item.purchase_date && <span style={{ background: '#e9ecef', padding: '3px 8px', borderRadius: '4px' }}><b>Date:</b> {item.purchase_date}</span>}
                 {item.condition && <span style={{ background: '#e9ecef', padding: '3px 8px', borderRadius: '4px' }}><b>Condition:</b> {item.condition}</span>}
               </div>
 
