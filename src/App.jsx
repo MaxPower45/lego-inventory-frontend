@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 function App() {
   const [file, setFile] = useState(null);
@@ -10,6 +10,14 @@ function App() {
 
   // Editable Modal State
   const [selectedSet, setSelectedSet] = useState(null);
+
+  // Search, Filter & Sort Controls
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCondition, setSelectedCondition] = useState('All');
+  const [selectedStore, setSelectedStore] = useState('All');
+  const [selectedShelf, setSelectedShelf] = useState('All');
+  const [sortBy, setSortBy] = useState('set_number');
+  const [sortOrder, setSortOrder] = useState('asc');
 
   const API_URL = 'https://lego-inventory-backend.onrender.com';
 
@@ -75,7 +83,7 @@ function App() {
       }
     } catch (err) {
       setStatusMessage('Error syncing with BrickLink.');
-    } finally {
+    } fontally {
       setSyncing(false);
     }
   };
@@ -131,10 +139,73 @@ function App() {
     return item.market_price_new || 0;
   };
 
-  // Portfolio Valuation Metrics
-  const totalQuantity = sets.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const totalPurchaseCost = sets.reduce((sum, item) => sum + ((item.purchase_price || 0) * (item.quantity || 1)), 0);
-  const totalMarketValuation = sets.reduce((sum, item) => sum + (getItemMarketPrice(item) * (item.quantity || 1)), 0);
+  // Extract unique Store and Shelf values for dropdown filters
+  const uniqueStores = useMemo(() => {
+    const stores = sets.map(s => s.store).filter(Boolean);
+    return ['All', ...Array.from(new Set(stores)).sort()];
+  }, [sets]);
+
+  const uniqueShelves = useMemo(() => {
+    const shelves = sets.map(s => s.new_shelf).filter(Boolean);
+    return ['All', ...Array.from(new Set(shelves)).sort()];
+  }, [sets]);
+
+  // Filter & Sort Logic
+  const filteredAndSortedSets = useMemo(() => {
+    return sets.filter(item => {
+      // Live Keyword Search
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm || 
+        (item.set_number && item.set_number.toLowerCase().includes(searchLower)) ||
+        (item.set_name && item.set_name.toLowerCase().includes(searchLower)) ||
+        (item.item_notes && item.item_notes.toLowerCase().includes(searchLower));
+
+      // Condition Filter
+      const matchesCondition = selectedCondition === 'All' || 
+        (item.condition && item.condition.toLowerCase() === selectedCondition.toLowerCase());
+
+      // Store Filter
+      const matchesStore = selectedStore === 'All' || item.store === selectedStore;
+
+      // Shelf Filter
+      const matchesShelf = selectedShelf === 'All' || item.new_shelf === selectedShelf;
+
+      return matchesSearch && matchesCondition && matchesStore && matchesShelf;
+    }).sort((a, b) => {
+      let aVal = a[sortBy];
+      let bVal = b[sortBy];
+
+      if (sortBy === 'market_price') {
+        aVal = getItemMarketPrice(a);
+        bVal = getItemMarketPrice(b);
+      }
+
+      if (aVal === null || aVal === undefined) aVal = '';
+      if (bVal === null || bVal === undefined) bVal = '';
+
+      if (typeof aVal === 'string') {
+        return sortOrder === 'asc' 
+          ? aVal.localeCompare(bVal, undefined, { numeric: true }) 
+          : bVal.localeCompare(aVal, undefined, { numeric: true });
+      }
+
+      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  }, [sets, searchTerm, selectedCondition, selectedStore, selectedShelf, sortBy, sortOrder]);
+
+  // Dynamic Valuation Metrics based on filtered sets
+  const totalQuantity = filteredAndSortedSets.reduce((sum, item) => sum + (item.quantity || 1), 0);
+  const totalPurchaseCost = filteredAndSortedSets.reduce((sum, item) => sum + ((item.purchase_price || 0) * (item.quantity || 1)), 0);
+  const totalMarketValuation = filteredAndSortedSets.reduce((sum, item) => sum + (getItemMarketPrice(item) * (item.quantity || 1)), 0);
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setSelectedCondition('All');
+    setSelectedStore('All');
+    setSelectedShelf('All');
+    setSortBy('set_number');
+    setSortOrder('asc');
+  };
 
   return (
     <div style={{ padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: '1400px', margin: '0 auto', color: '#1a1a1a' }}>
@@ -159,18 +230,18 @@ function App() {
         </button>
       </header>
 
-      {/* Summary Valuation Cards */}
+      {/* Summary Valuation Cards (Reflects Filtered View dynamically) */}
       <div style={{ display: 'flex', gap: '20px', marginBottom: '28px' }}>
         <div style={{ flex: 1, padding: '20px', background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '10px' }}>
-          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Total Quantity</span>
+          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Filtered Quantity</span>
           <h2 style={{ margin: '8px 0 0 0', fontSize: '30px', color: '#212529' }}>{totalQuantity.toLocaleString()} Sets</h2>
         </div>
         <div style={{ flex: 1, padding: '20px', background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '10px' }}>
-          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Total Purchase Cost</span>
+          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Filtered Purchase Cost</span>
           <h2 style={{ margin: '8px 0 0 0', fontSize: '30px', color: '#495057' }}>${totalPurchaseCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
         </div>
         <div style={{ flex: 1, padding: '20px', background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '10px' }}>
-          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Est. Market Valuation</span>
+          <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Filtered Est. Market Value</span>
           <h2 style={{ margin: '8px 0 0 0', fontSize: '30px', color: '#2e7d32' }}>${totalMarketValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
         </div>
       </div>
@@ -185,15 +256,93 @@ function App() {
         {statusMessage && <p style={{ marginTop: '10px', fontSize: '14px', fontWeight: '500', color: '#495057' }}>{statusMessage}</p>}
       </div>
 
+      {/* Power Toolbar: Search, Filters & Sorting Controls */}
+      <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '10px', border: '1px solid #dee2e6', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+        {/* Search Bar */}
+        <div style={{ flex: '2 1 240px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Search Sets</label>
+          <input
+            type="text"
+            placeholder="Search by name, #, or notes..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}
+          />
+        </div>
+
+        {/* Condition Filter */}
+        <div style={{ flex: '1 1 130px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Condition</label>
+          <select value={selectedCondition} onChange={(e) => setSelectedCondition(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
+            <option value="All">All Conditions</option>
+            <option value="New">New</option>
+            <option value="Used">Used</option>
+          </select>
+        </div>
+
+        {/* Store Filter */}
+        <div style={{ flex: '1 1 150px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Store</label>
+          <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
+            {uniqueStores.map(store => (
+              <option key={store} value={store}>{store === 'All' ? 'All Stores' : store}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Shelf Location Filter */}
+        <div style={{ flex: '1 1 130px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Shelf Location</label>
+          <select value={selectedShelf} onChange={(e) => setSelectedShelf(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
+            {uniqueShelves.map(shelf => (
+              <option key={shelf} value={shelf}>{shelf === 'All' ? 'All Shelves' : shelf}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Sort Field */}
+        <div style={{ flex: '1 1 150px' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Sort By</label>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
+            <option value="set_number">Set #</option>
+            <option value="set_name">Set Name</option>
+            <option value="purchase_price">Paid Price</option>
+            <option value="market_price">Market Value</option>
+            <option value="quantity">Quantity</option>
+            <option value="purchase_dt">Purchase Date</option>
+          </select>
+        </div>
+
+        {/* Sort Order Toggle */}
+        <div style={{ flex: '0 0 auto' }}>
+          <button
+            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+            style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #ced4da', backgroundColor: '#fff', cursor: 'pointer', fontWeight: '600' }}
+          >
+            {sortOrder === 'asc' ? '⬆ Asc' : '⬇ Desc'}
+          </button>
+        </div>
+
+        {/* Reset Filters */}
+        <div style={{ flex: '0 0 auto' }}>
+          <button
+            onClick={resetFilters}
+            style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #dc3545', backgroundColor: '#fff', color: '#dc3545', cursor: 'pointer', fontWeight: '600' }}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
       {/* Primary Collection Table */}
       <h2 style={{ fontSize: '20px', marginBottom: '16px' }}>
-        Your Inventory ({sets.length.toLocaleString()} Unique Lines) — <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#666' }}>Click any row to edit details</span>
+        Showing {filteredAndSortedSets.length.toLocaleString()} of {sets.length.toLocaleString()} Sets — <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#666' }}>Click any row to edit details</span>
       </h2>
       
       {loading && sets.length === 0 ? (
         <p>Loading library records...</p>
-      ) : sets.length === 0 ? (
-        <p>No sets found in database.</p>
+      ) : filteredAndSortedSets.length === 0 ? (
+        <p style={{ padding: '20px', background: '#f8f9fa', borderRadius: '8px', color: '#6c757d' }}>No sets match your current search and filter selections.</p>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid #dee2e6', borderRadius: '8px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
@@ -213,7 +362,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {sets.map((item) => {
+              {filteredAndSortedSets.map((item) => {
                 const mktPrice = getItemMarketPrice(item);
                 return (
                   <tr 
