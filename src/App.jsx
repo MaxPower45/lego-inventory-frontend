@@ -82,6 +82,60 @@ function App() {
     }
   };
 
+  // Export Inventory as CSV Backup
+  const handleExportCSV = () => {
+    if (sets.length === 0) {
+      alert('No inventory data available to export.');
+      return;
+    }
+
+    const headers = [
+      'set_number',
+      'set_name',
+      'quantity',
+      'condition',
+      'purchase_price',
+      'market_price_new',
+      'market_price_used',
+      'store',
+      'new_shelf',
+      'purchase_dt',
+      'item_notes',
+      'image_url'
+    ];
+
+    const csvRows = [];
+    csvRows.push(headers.join(','));
+
+    sets.forEach(item => {
+      const row = [
+        `"${(item.set_number || '').replace(/"/g, '""')}"`,
+        `"${(item.set_name || '').replace(/"/g, '""')}"`,
+        item.quantity || 1,
+        `"${(item.condition || '').replace(/"/g, '""')}"`,
+        item.purchase_price || 0.0,
+        item.market_price_new || 0.0,
+        item.market_price_used || 0.0,
+        `"${(item.store || '').replace(/"/g, '""')}"`,
+        `"${(item.new_shelf || '').replace(/"/g, '""')}"`,
+        `"${(item.purchase_dt || '').replace(/"/g, '""')}"`,
+        `"${(item.item_notes || '').replace(/"/g, '""')}"`,
+        `"${(item.image_url || '').replace(/"/g, '""')}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `lego_inventory_backup_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleSyncAll = async () => {
     setSyncing(true);
     setStatusMessage('Syncing with BrickLink API...');
@@ -314,15 +368,35 @@ function App() {
         </div>
       </div>
 
-      {/* CSV Upload Controls */}
-      <div style={{ marginBottom: '24px', padding: '16px', background: '#ffffff', border: '1px solid #e0e0e0', borderRadius: '10px' }}>
-        <h4 style={{ margin: '0 0 10px 0', fontSize: '15px' }}>Import Inventory CSV</h4>
-        <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} />
-        <button onClick={handleUpload} style={{ marginLeft: '12px', padding: '6px 16px', cursor: 'pointer' }}>
-          Upload CSV
-        </button>
-        {statusMessage && <p style={{ marginTop: '10px', fontSize: '14px', fontWeight: '500', color: '#495057' }}>{statusMessage}</p>}
+      {/* CSV Import & Export Backup Bar */}
+      <div style={{ marginBottom: '24px', padding: '16px', background: '#ffffff', border: '1px solid #e0e0e0', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h4 style={{ margin: '0 0 10px 0', fontSize: '15px' }}>Import Inventory CSV</h4>
+          <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} />
+          <button onClick={handleUpload} style={{ marginLeft: '12px', padding: '6px 16px', cursor: 'pointer' }}>
+            Upload CSV
+          </button>
+        </div>
+        <div>
+          <button 
+            onClick={handleExportCSV}
+            style={{
+              padding: '9px 16px',
+              backgroundColor: '#495057',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '13px'
+            }}
+          >
+            ⬇ Export CSV Backup
+          </button>
+        </div>
       </div>
+
+      {statusMessage && <p style={{ marginTop: '-14px', marginBottom: '20px', fontSize: '14px', fontWeight: '500', color: '#495057' }}>{statusMessage}</p>}
 
       {/* Power Toolbar: Search, Filters & Sorting Controls */}
       <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '10px', border: '1px solid #dee2e6', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
