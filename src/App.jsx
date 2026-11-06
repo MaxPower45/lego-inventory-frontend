@@ -8,8 +8,22 @@ function App() {
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Editable Modal State
+  // Modals
   const [selectedSet, setSelectedSet] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Single Set Add Form State
+  const [newSetData, setNewSetData] = useState({
+    set_number: '',
+    set_name: '',
+    quantity: 1,
+    condition: 'New',
+    purchase_price: '',
+    purchase_dt: '',
+    new_shelf: '',
+    item_notes: '',
+    store: ''
+  });
 
   // Search, Filter & Sort Controls
   const [searchTerm, setSearchTerm] = useState('');
@@ -83,8 +97,52 @@ function App() {
       }
     } catch (err) {
       setStatusMessage('Error syncing with BrickLink.');
-    } fontally {
+    } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleAddSingleSet = async (e) => {
+    e.preventDefault();
+    if (!newSetData.set_number || !newSetData.set_name) {
+      alert('Set Number and Set Name are required.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/add-set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newSetData,
+          quantity: parseInt(newSetData.quantity) || 1,
+          purchase_price: parseFloat(newSetData.purchase_price) || 0.0
+        })
+      });
+
+      if (res.ok) {
+        setShowAddModal(false);
+        setNewSetData({
+          set_number: '',
+          set_name: '',
+          quantity: 1,
+          condition: 'New',
+          purchase_price: '',
+          purchase_dt: '',
+          new_shelf: '',
+          item_notes: '',
+          store: ''
+        });
+        await fetchSets();
+      } else {
+        alert('Failed to add new set.');
+      }
+    } catch (err) {
+      console.error('Error adding set:', err);
+      alert('Error adding set to database.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -153,21 +211,16 @@ function App() {
   // Filter & Sort Logic
   const filteredAndSortedSets = useMemo(() => {
     return sets.filter(item => {
-      // Live Keyword Search
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm || 
         (item.set_number && item.set_number.toLowerCase().includes(searchLower)) ||
         (item.set_name && item.set_name.toLowerCase().includes(searchLower)) ||
         (item.item_notes && item.item_notes.toLowerCase().includes(searchLower));
 
-      // Condition Filter
       const matchesCondition = selectedCondition === 'All' || 
         (item.condition && item.condition.toLowerCase() === selectedCondition.toLowerCase());
 
-      // Store Filter
       const matchesStore = selectedStore === 'All' || item.store === selectedStore;
-
-      // Shelf Filter
       const matchesShelf = selectedShelf === 'All' || item.new_shelf === selectedShelf;
 
       return matchesSearch && matchesCondition && matchesStore && matchesShelf;
@@ -193,7 +246,6 @@ function App() {
     });
   }, [sets, searchTerm, selectedCondition, selectedStore, selectedShelf, sortBy, sortOrder]);
 
-  // Dynamic Valuation Metrics based on filtered sets
   const totalQuantity = filteredAndSortedSets.reduce((sum, item) => sum + (item.quantity || 1), 0);
   const totalPurchaseCost = filteredAndSortedSets.reduce((sum, item) => sum + ((item.purchase_price || 0) * (item.quantity || 1)), 0);
   const totalMarketValuation = filteredAndSortedSets.reduce((sum, item) => sum + (getItemMarketPrice(item) * (item.quantity || 1)), 0);
@@ -213,24 +265,40 @@ function App() {
       {/* App Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>LEGO Collection Tracker</h1>
-        <button
-          onClick={handleSyncAll}
-          disabled={syncing}
-          style={{
-            padding: '10px 18px',
-            backgroundColor: syncing ? '#888' : '#0066cc',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: syncing ? 'not-allowed' : 'pointer',
-            fontWeight: '600',
-          }}
-        >
-          {syncing ? 'Syncing...' : 'Sync BrickLink Data'}
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            onClick={() => setShowAddModal(true)}
+            style={{
+              padding: '10px 18px',
+              backgroundColor: '#2e7d32',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600',
+            }}
+          >
+            + Add Single Set
+          </button>
+          <button
+            onClick={handleSyncAll}
+            disabled={syncing}
+            style={{
+              padding: '10px 18px',
+              backgroundColor: syncing ? '#888' : '#0066cc',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: syncing ? 'not-allowed' : 'pointer',
+              fontWeight: '600',
+            }}
+          >
+            {syncing ? 'Syncing...' : 'Sync BrickLink Data'}
+          </button>
+        </div>
       </header>
 
-      {/* Summary Valuation Cards (Reflects Filtered View dynamically) */}
+      {/* Summary Valuation Cards */}
       <div style={{ display: 'flex', gap: '20px', marginBottom: '28px' }}>
         <div style={{ flex: 1, padding: '20px', background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '10px' }}>
           <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Filtered Quantity</span>
@@ -258,7 +326,6 @@ function App() {
 
       {/* Power Toolbar: Search, Filters & Sorting Controls */}
       <div style={{ background: '#f8f9fa', padding: '16px', borderRadius: '10px', border: '1px solid #dee2e6', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
-        {/* Search Bar */}
         <div style={{ flex: '2 1 240px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Search Sets</label>
           <input
@@ -270,7 +337,6 @@ function App() {
           />
         </div>
 
-        {/* Condition Filter */}
         <div style={{ flex: '1 1 130px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Condition</label>
           <select value={selectedCondition} onChange={(e) => setSelectedCondition(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
@@ -280,7 +346,6 @@ function App() {
           </select>
         </div>
 
-        {/* Store Filter */}
         <div style={{ flex: '1 1 150px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Store</label>
           <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
@@ -290,7 +355,6 @@ function App() {
           </select>
         </div>
 
-        {/* Shelf Location Filter */}
         <div style={{ flex: '1 1 130px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Shelf Location</label>
           <select value={selectedShelf} onChange={(e) => setSelectedShelf(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
@@ -300,7 +364,6 @@ function App() {
           </select>
         </div>
 
-        {/* Sort Field */}
         <div style={{ flex: '1 1 150px' }}>
           <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#495057', marginBottom: '4px' }}>Sort By</label>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ced4da', fontSize: '14px' }}>
@@ -313,7 +376,6 @@ function App() {
           </select>
         </div>
 
-        {/* Sort Order Toggle */}
         <div style={{ flex: '0 0 auto' }}>
           <button
             onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
@@ -323,7 +385,6 @@ function App() {
           </button>
         </div>
 
-        {/* Reset Filters */}
         <div style={{ flex: '0 0 auto' }}>
           <button
             onClick={resetFilters}
@@ -403,7 +464,82 @@ function App() {
         </div>
       )}
 
-      {/* Editable Detail Modal */}
+      {/* Modal: Add Single Set */}
+      {showAddModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', padding: '28px', borderRadius: '12px', maxWidth: '550px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, fontSize: '20px' }}>Add Single Set</h3>
+              <button onClick={() => setShowAddModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
+            </div>
+
+            <form onSubmit={handleAddSingleSet} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Set # *</label>
+                  <input type="text" required value={newSetData.set_number} onChange={(e) => setNewSetData({...newSetData, set_number: e.target.value})} placeholder="e.g. 75313" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Set Name *</label>
+                  <input type="text" required value={newSetData.set_name} onChange={(e) => setNewSetData({...newSetData, set_name: e.target.value})} placeholder="e.g. AT-AT" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Quantity</label>
+                  <input type="number" min="1" value={newSetData.quantity} onChange={(e) => setNewSetData({...newSetData, quantity: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Condition</label>
+                  <select value={newSetData.condition} onChange={(e) => setNewSetData({...newSetData, condition: e.target.value})} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                    <option value="New">New</option>
+                    <option value="Used">Used</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Purchase Price ($)</label>
+                  <input type="number" step="0.01" value={newSetData.purchase_price} onChange={(e) => setNewSetData({...newSetData, purchase_price: e.target.value})} placeholder="0.00" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Purchase Date</label>
+                  <input type="text" value={newSetData.purchase_dt} onChange={(e) => setNewSetData({...newSetData, purchase_dt: e.target.value})} placeholder="MM/DD/YYYY" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Shelf Location</label>
+                  <input type="text" value={newSetData.new_shelf} onChange={(e) => setNewSetData({...newSetData, new_shelf: e.target.value})} placeholder="e.g. 0049" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Store</label>
+                  <input type="text" value={newSetData.store} onChange={(e) => setNewSetData({...newSetData, store: e.target.value})} placeholder="e.g. LEGO Store" style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#555' }}>Notes</label>
+                <textarea rows="2" value={newSetData.item_notes} onChange={(e) => setNewSetData({...newSetData, item_notes: e.target.value})} placeholder="Item condition notes..." style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                <button type="submit" disabled={saving} style={{ flex: 1, padding: '10px', backgroundColor: saving ? '#888' : '#2e7d32', color: '#fff', border: 'none', borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
+                  {saving ? 'Adding...' : 'Add Set to Collection'}
+                </button>
+                <button type="button" onClick={() => setShowAddModal(false)} style={{ flex: 1, padding: '10px', backgroundColor: '#e9ecef', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Set Record */}
       {selectedSet && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', padding: '28px', borderRadius: '12px', maxWidth: '550px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
