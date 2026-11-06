@@ -6,21 +6,7 @@ function App() {
   const [sets, setSets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [selectedSet, setSelectedSet] = useState(null); // For Modal
-  const [showAddForm, setShowAddForm] = useState(false);
-
-  // New Set Form State
-  const [newSet, setNewSet] = useState({
-    set_number: '',
-    set_name: '',
-    quantity: 1,
-    condition: 'New',
-    purchase_price: '',
-    purchase_dt: '',
-    new_shelf: '',
-    item_notes: '',
-    store: ''
-  });
+  const [selectedSet, setSelectedSet] = useState(null);
 
   const API_URL = 'https://lego-inventory-backend.onrender.com';
 
@@ -106,42 +92,26 @@ function App() {
   const totalMarketValuation = sets.reduce((sum, item) => sum + (getItemMarketPrice(item) * (item.quantity || 1)), 0);
 
   return (
-    <div style={{ padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: '1300px', margin: '0 auto', color: '#1a1a1a' }}>
+    <div style={{ padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: '1400px', margin: '0 auto', color: '#1a1a1a' }}>
       
       {/* App Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>LEGO Collection Tracker</h1>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            style={{
-              padding: '10px 16px',
-              backgroundColor: '#2e7d32',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: '600',
-            }}
-          >
-            {showAddForm ? 'Close Add Form' : '+ Add Single Set'}
-          </button>
-          <button
-            onClick={handleSyncAll}
-            disabled={syncing}
-            style={{
-              padding: '10px 18px',
-              backgroundColor: syncing ? '#888' : '#0066cc',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: syncing ? 'not-allowed' : 'pointer',
-              fontWeight: '600',
-            }}
-          >
-            {syncing ? 'Syncing...' : 'Sync BrickLink Data'}
-          </button>
-        </div>
+        <button
+          onClick={handleSyncAll}
+          disabled={syncing}
+          style={{
+            padding: '10px 18px',
+            backgroundColor: syncing ? '#888' : '#0066cc',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: syncing ? 'not-allowed' : 'pointer',
+            fontWeight: '600',
+          }}
+        >
+          {syncing ? 'Syncing...' : 'Sync BrickLink Data'}
+        </button>
       </header>
 
       {/* Summary Valuation Cards */}
@@ -171,7 +141,9 @@ function App() {
       </div>
 
       {/* Primary Collection Table */}
-      <h2 style={{ fontSize: '20px', marginBottom: '16px' }}>Your Inventory ({sets.length.toLocaleString()} Unique Lines) — <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#666' }}>Click any row to view full details</span></h2>
+      <h2 style={{ fontSize: '20px', marginBottom: '16px' }}>
+        Your Inventory ({sets.length.toLocaleString()} Unique Lines) — <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#666' }}>Click any row to view full details</span>
+      </h2>
       
       {loading && sets.length === 0 ? (
         <p>Loading library records...</p>
@@ -190,6 +162,7 @@ function App() {
                 <th style={{ padding: '12px 10px' }}>Condition</th>
                 <th style={{ padding: '12px 10px' }}>Paid</th>
                 <th style={{ padding: '12px 10px' }}>Market Price</th>
+                <th style={{ padding: '12px 10px' }}>Store</th>
                 <th style={{ padding: '12px 10px' }}>Purchased</th>
                 <th style={{ padding: '12px 10px' }}>Notes</th>
               </tr>
@@ -219,10 +192,11 @@ function App() {
                     <td style={{ padding: '8px 10px', color: '#6c757d' }}>{item.new_shelf || 'N/A'}</td>
                     <td style={{ padding: '8px 10px', fontWeight: '500' }}>{item.quantity}</td>
                     <td style={{ padding: '8px 10px' }}>{item.condition || 'N/A'}</td>
-                    <td style={{ padding: '8px 10px' }}>{item.purchase_price ? `$${item.purchase_price.toFixed(2)}` : 'N/A'}</td>
+                    <td style={{ padding: '8px 10px' }}>{item.purchase_price > 0 ? `$${item.purchase_price.toFixed(2)}` : 'N/A'}</td>
                     <td style={{ padding: '8px 10px', color: '#2e7d32', fontWeight: '600' }}>
                       {mktPrice > 0 ? `$${mktPrice.toFixed(2)}` : 'N/A'}
                     </td>
+                    <td style={{ padding: '8px 10px', color: '#495057' }}>{item.store || '-'}</td>
                     <td style={{ padding: '8px 10px', color: '#6c757d' }}>{item.purchase_dt || 'N/A'}</td>
                     <td style={{ padding: '8px 10px', color: '#6c757d', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {item.item_notes || '-'}
@@ -257,11 +231,11 @@ function App() {
               <div><strong>Condition:</strong> {selectedSet.condition || 'N/A'}</div>
               <div><strong>Quantity:</strong> {selectedSet.quantity}</div>
               <div><strong>Shelf Location:</strong> {selectedSet.new_shelf || 'N/A'}</div>
-              <div><strong>Store Purchased:</strong> {selectedSet.store || 'N/A'}</div>
-              <div><strong>Purchase Price:</strong> {selectedSet.purchase_price ? `$${selectedSet.purchase_price.toFixed(2)}` : 'N/A'}</div>
+              <div><strong>Store:</strong> {selectedSet.store || 'N/A'}</div>
+              <div><strong>Purchase Price:</strong> {selectedSet.purchase_price > 0 ? `$${selectedSet.purchase_price.toFixed(2)}` : 'N/A'}</div>
               <div><strong>Purchase Date:</strong> {selectedSet.purchase_dt || 'N/A'}</div>
-              <div><strong>Market Price (New):</strong> {selectedSet.market_price_new ? `$${selectedSet.market_price_new.toFixed(2)}` : 'N/A'}</div>
-              <div><strong>Market Price (Used):</strong> {selectedSet.market_price_used ? `$${selectedSet.market_price_used.toFixed(2)}` : 'N/A'}</div>
+              <div><strong>Market Price (New):</strong> {selectedSet.market_price_new > 0 ? `$${selectedSet.market_price_new.toFixed(2)}` : 'N/A'}</div>
+              <div><strong>Market Price (Used):</strong> {selectedSet.market_price_used > 0 ? `$${selectedSet.market_price_used.toFixed(2)}` : 'N/A'}</div>
             </div>
 
             {selectedSet.item_notes && (
