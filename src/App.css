@@ -333,3 +333,27 @@ body {
   color: #856404;
   border: 1px solid #ffeeba;
 }
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.upload-placeholder {
+  border: 2px dashed #007bff;
+  border-radius: 8px;
+  padding: 30px;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.upload-placeholder:hover {
+  background: #e9ecef;
+}
+
+.scan-preview-img {
+  max-width: 100%;
+  max-height: 250px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
