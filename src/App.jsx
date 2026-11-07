@@ -15,7 +15,29 @@ const formatImageUrl = (url, itemNumber, isMinifig = false) => {
   if (url && url.startsWith('http://')) return url.replace('http://', 'https://');
   return url;
 };
-
+const exportToCSV = (data, filename = 'lego_inventory.csv') => {
+  if (!data || !data.length) {
+    alert("No data available to export.");
+    return;
+  }
+  const headers = Object.keys(data[0]);
+  const csvRows = [
+    headers.join(','),
+    ...data.map(row => 
+      headers.map(field => {
+        const value = row[field] === null || row[field] === undefined ? '' : row[field];
+        return `"${String(value).replace(/"/g, '""')}"`;
+      }).join(',')
+    )
+  ];
+  
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.setAttribute('href', url);
+  a.setAttribute('download', filename);
+  a.click();
+};
 function App() {
   const [activeTab, setActiveTab] = useState('sets');
   
