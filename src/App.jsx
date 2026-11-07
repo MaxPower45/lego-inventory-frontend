@@ -147,16 +147,20 @@ function App() {
 
   const exportCSV = () => {
     if (!sets.length) return;
-    const headers = ["Set Number", "Set Name", "Quantity", "Condition", "Purchase Price", "Shelf", "Polybag"];
-    const rows = sets.map(s => [
-      `"${s.set_number}"`,
-      `"${s.set_name}"`,
-      s.quantity,
-      `"${s.condition || ''}"`,
-      s.purchase_price,
-      `"${s.new_shelf || ''}"`,
-      `"${s.polybag || ''}"`
-    ]);
+    const headers = ["Set Number", "Set Name", "Quantity", "Condition", "Purchase Price", "Shelf", "Polybag", "Market Price"];
+    const rows = sets.map(s => {
+      const mktPrice = s.condition === 'Used' ? (s.market_price_used || 0) : (s.market_price_new || 0);
+      return [
+        `"${s.set_number}"`,
+        `"${s.set_name}"`,
+        s.quantity,
+        `"${s.condition || ''}"`,
+        s.purchase_price,
+        `"${s.new_shelf || ''}"`,
+        `"${s.polybag || ''}"`,
+        mktPrice
+      ];
+    });
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -178,10 +182,14 @@ function App() {
     return matchesSearch;
   });
 
-  // Financial Stats
+  // Financial Stats (Uses Used price if condition is Used, otherwise New price)
   const totalSets = filteredSets.reduce((acc, s) => acc + (s.quantity || 1), 0);
   const totalCost = filteredSets.reduce((acc, s) => acc + ((s.purchase_price || 0) * (s.quantity || 1)), 0);
-  const totalMarketNew = filteredSets.reduce((acc, s) => acc + ((s.market_price_new || 0) * (s.quantity || 1)), 0);
+  const totalMarketVal = filteredSets.reduce((acc, s) => {
+    const isUsed = s.condition && s.condition.toLowerCase() === 'used';
+    const price = isUsed ? (s.market_price_used || 0) : (s.market_price_new || 0);
+    return acc + (price * (s.quantity || 1));
+  }, 0);
 
   return (
     <div className="app-container">
@@ -236,8 +244,8 @@ function App() {
               <p>${totalCost.toFixed(2)}</p>
             </div>
             <div className="stat-card">
-              <h3>Market Value (New)</h3>
-              <p>${totalMarketNew.toFixed(2)}</p>
+              <h3>Market Value</h3>
+              <p>${totalMarketVal.toFixed(2)}</p>
             </div>
           </section>
 
@@ -273,7 +281,7 @@ function App() {
                     <th>Qty</th>
                     <th>Cond.</th>
                     <th>Cost</th>
-                    <th>Market (New)</th>
+                    <th>Market Value</th>
                     <th>Shelf</th>
                     <th>Actions</th>
                   </tr>
@@ -281,6 +289,9 @@ function App() {
                 <tbody>
                   {filteredSets.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.set_number);
+                    const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+                    const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">
@@ -303,7 +314,7 @@ function App() {
                         <td>{item.quantity}</td>
                         <td>{item.condition || 'N/A'}</td>
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
-                        <td>${(item.market_price_new || 0).toFixed(2)}</td>
+                        <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.new_shelf || '-'}</td>
                         <td className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenModal(item)}>✏️</button>
@@ -378,6 +389,18 @@ function App() {
                   />
                 </div>
                 <div className="form-group">
+                  <label>Condition</label>
+                  <select 
+                    value={formData.condition}
+                    onChange={(e) => setFormData({...formData, condition: e.target.value})}
+                  >
+                    <option value="New">New</option>
+                    <option value="Used">Used</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
                   <label>Purchase Price ($)</label>
                   <input 
                     type="number" 
@@ -386,8 +409,6 @@ function App() {
                     onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0.0})}
                   />
                 </div>
-              </div>
-              <div className="form-row">
                 <div className="form-group">
                   <label>Shelf Location</label>
                   <input 
@@ -396,16 +417,16 @@ function App() {
                     onChange={(e) => setFormData({...formData, new_shelf: e.target.value})}
                   />
                 </div>
-                <div className="form-group">
-                  <label>Polybag?</label>
-                  <select 
-                    value={formData.polybag} 
-                    onChange={(e) => setFormData({...formData, polybag: e.target.value})}
-                  >
-                    <option value="No">No</option>
-                    <option value="Yes">Yes</option>
-                  </select>
-                </div>
+              </div>
+              <div className="form-group">
+                <label>Polybag?</label>
+                <select 
+                  value={formData.polybag} 
+                  onChange={(e) => setFormData({...formData, polybag: e.target.value})}
+                >
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
