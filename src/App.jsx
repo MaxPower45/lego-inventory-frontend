@@ -6,7 +6,6 @@ const API_BASE = "https://lego-inventory-backend.onrender.com";
 const formatImageUrl = (url, itemNumber, isMinifig = false) => {
   if (itemNumber && itemNumber !== 'N/A' && itemNumber !== 'Unknown') {
     if (isMinifig) {
-      // Brickset CDN fallback for minifigures
       return `https://images.brickset.com/minifigs/large/${itemNumber}.jpg`;
     }
     const cleanNum = itemNumber.split('-')[0].trim();
@@ -206,7 +205,9 @@ function App() {
   // --- FILTER & CALCULATIONS ---
   const filteredSets = sets.filter(s => {
     const matchesSearch = s.set_name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          s.set_number?.toLowerCase().includes(searchQuery.toLowerCase());
+                          s.set_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          s.store?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          s.item_notes?.toLowerCase().includes(searchQuery.toLowerCase());
     if (filterPolybag === 'YES') return matchesSearch && (s.polybag?.toLowerCase() === 'yes' || s.polybag?.toLowerCase() === 'true');
     if (filterPolybag === 'NO') return matchesSearch && (!s.polybag || s.polybag?.toLowerCase() === 'no' || s.polybag?.toLowerCase() === 'false');
     return matchesSearch;
@@ -222,7 +223,8 @@ function App() {
 
   const filteredMinifigs = minifigs.filter(f => 
     f.fig_name?.toLowerCase().includes(minifigSearchQuery.toLowerCase()) || 
-    f.fig_number?.toLowerCase().includes(minifigSearchQuery.toLowerCase())
+    f.fig_number?.toLowerCase().includes(minifigSearchQuery.toLowerCase()) ||
+    f.notes?.toLowerCase().includes(minifigSearchQuery.toLowerCase())
   );
 
   const totalFigQty = filteredMinifigs.reduce((acc, f) => acc + (f.quantity || 1), 0);
@@ -271,7 +273,7 @@ function App() {
 
           <section className="controls-row">
             <input 
-              type="text" placeholder="Search sets..." value={searchQuery}
+              type="text" placeholder="Search name, set #, store, or notes..." value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)} className="search-input"
             />
             <div className="filter-group">
@@ -292,8 +294,18 @@ function App() {
               <table className="inventory-table">
                 <thead>
                   <tr>
-                    <th>Image</th><th>Set #</th><th>Name</th><th>Qty</th><th>Cond.</th>
-                    <th>Cost</th><th>Market Value</th><th>Shelf</th><th>Actions</th>
+                    <th>Image</th>
+                    <th>Set #</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Cond.</th>
+                    <th>Cost</th>
+                    <th>Market Value</th>
+                    <th>Shelf</th>
+                    <th>Purchased</th>
+                    <th>Store</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -318,6 +330,9 @@ function App() {
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.new_shelf || '-'}</td>
+                        <td>{item.purchase_dt || '-'}</td>
+                        <td>{item.store || '-'}</td>
+                        <td>{item.item_notes || '-'}</td>
                         <td className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
@@ -343,7 +358,7 @@ function App() {
 
           <section className="controls-row">
             <input 
-              type="text" placeholder="Search minifigs (e.g. sw0001a)..." value={minifigSearchQuery}
+              type="text" placeholder="Search minifigs (e.g. sw0001a or notes)..." value={minifigSearchQuery}
               onChange={(e) => setMinifigSearchQuery(e.target.value)} className="search-input"
             />
             <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
@@ -356,8 +371,16 @@ function App() {
               <table className="inventory-table">
                 <thead>
                   <tr>
-                    <th>Image</th><th>Fig #</th><th>Name</th><th>Qty</th><th>Cond.</th>
-                    <th>Cost</th><th>Market Value</th><th>Shelf</th><th>Actions</th>
+                    <th>Image</th>
+                    <th>Fig #</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Cond.</th>
+                    <th>Cost</th>
+                    <th>Market Value</th>
+                    <th>Shelf</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -382,6 +405,7 @@ function App() {
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.shelf_location || '-'}</td>
+                        <td>{item.notes || '-'}</td>
                         <td className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenFigModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
@@ -444,9 +468,37 @@ function App() {
                   <input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0.0})}/>
                 </div>
                 <div className="form-group">
+                  <label>Purchase Date</label>
+                  <input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})}/>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Store Purchased</label>
+                  <input type="text" placeholder="e.g. LEGO Store, Target, eBay" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})}/>
+                </div>
+                <div className="form-group">
                   <label>Shelf Location</label>
                   <input type="text" value={formData.new_shelf} onChange={(e) => setFormData({...formData, new_shelf: e.target.value})}/>
                 </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Polybag?</label>
+                  <select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}>
+                    <option value="No">No</option><option value="Yes">Yes</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Item Notes</label>
+                <textarea 
+                  rows="2" 
+                  placeholder="Damage, box condition, missing parts..." 
+                  value={formData.item_notes} 
+                  onChange={(e) => setFormData({...formData, item_notes: e.target.value})}
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                />
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
@@ -492,6 +544,16 @@ function App() {
                   <label>Shelf Location</label>
                   <input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})}/>
                 </div>
+              </div>
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea 
+                  rows="2" 
+                  placeholder="Minifig condition, accessories, cracked torso..." 
+                  value={figFormData.notes} 
+                  onChange={(e) => setFigFormData({...figFormData, notes: e.target.value})}
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                />
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsFigModalOpen(false)}>Cancel</button>
