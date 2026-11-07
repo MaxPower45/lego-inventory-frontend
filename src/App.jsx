@@ -32,8 +32,13 @@ function App() {
   const [loadingWishlist, setLoadingWishlist] = useState(false);
   const [wishlistSearchQuery, setWishlistSearchQuery] = useState('');
 
+  const [sales, setSales] = useState([]);
+  const [loadingSales, setLoadingSales] = useState(false);
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+
   const [syncStatus, setSyncStatus] = useState('');
 
+  // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [formData, setFormData] = useState({
@@ -52,6 +57,13 @@ function App() {
   const [editingWish, setEditingWish] = useState(null);
   const [wishFormData, setWishFormData] = useState({
     item_number: '', item_name: '', item_type: 'SET', target_price: 0.0, priority: 'Medium', notes: ''
+  });
+
+  const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
+  const [editingSale, setEditingSale] = useState(null);
+  const [saleFormData, setSaleFormData] = useState({
+    item_number: '', item_name: '', item_type: 'SET', sale_date: '',
+    sale_price: 0.0, cost_price: 0.0, platform_fees: 0.0, shipping_cost: 0.0, platform: 'eBay', notes: ''
   });
 
   const fetchSets = async () => {
@@ -78,10 +90,19 @@ function App() {
     } catch (err) { console.error(err); } finally { setLoadingWishlist(false); }
   };
 
+  const fetchSales = async () => {
+    setLoadingSales(true);
+    try {
+      const res = await fetch(`${API_BASE}/sales`);
+      if (res.ok) setSales(await res.json());
+    } catch (err) { console.error(err); } finally { setLoadingSales(false); }
+  };
+
   useEffect(() => {
     fetchSets();
     fetchMinifigs();
     fetchWishlist();
+    fetchSales();
   }, []);
 
   const handleSync = async () => {
@@ -98,6 +119,7 @@ function App() {
     }
   };
 
+  // --- SET HANDLERS ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -135,6 +157,7 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- MINIFIG HANDLERS ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
@@ -170,6 +193,7 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- WISHLIST HANDLERS ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -204,6 +228,45 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- SALES HANDLERS ---
+  const handleOpenSaleModal = (saleItem = null) => {
+    if (saleItem) {
+      setEditingSale(saleItem);
+      setSaleFormData({
+        item_number: saleItem.item_number || '', item_name: saleItem.item_name || '', item_type: saleItem.item_type || 'SET',
+        sale_date: saleItem.sale_date || '', sale_price: saleItem.sale_price || 0.0, cost_price: saleItem.cost_price || 0.0,
+        platform_fees: saleItem.platform_fees || 0.0, shipping_cost: saleItem.shipping_cost || 0.0,
+        platform: saleItem.platform || 'eBay', notes: saleItem.notes || ''
+      });
+    } else {
+      setEditingSale(null);
+      setSaleFormData({
+        item_number: '', item_name: '', item_type: 'SET', sale_date: new Date().toISOString().split('T')[0],
+        sale_price: 0.0, cost_price: 0.0, platform_fees: 0.0, shipping_cost: 0.0, platform: 'eBay', notes: ''
+      });
+    }
+    setIsSaleModalOpen(true);
+  };
+
+  const handleSaleFormSubmit = async (e) => {
+    e.preventDefault();
+    const endpoint = editingSale ? `${API_BASE}/sales/${editingSale.id}` : `${API_BASE}/add-sale`;
+    const method = editingSale ? 'PUT' : 'POST';
+    try {
+      const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(saleFormData) });
+      if (res.ok) { setIsSaleModalOpen(false); fetchSales(); }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteSale = async (id) => {
+    if (!window.confirm("Delete this sale entry?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/sales/${id}`, { method: 'DELETE' });
+      if (res.ok) fetchSales();
+    } catch (err) { console.error(err); }
+  };
+
+  // --- CALCULATIONS ---
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
@@ -243,6 +306,16 @@ function App() {
 
   const totalWishTarget = filteredWishlist.reduce((acc, w) => acc + (w.target_price || 0), 0);
 
+  const filteredSales = sales.filter(s => {
+    const q = salesSearchQuery.toLowerCase();
+    return s.item_name?.toLowerCase().includes(q) || s.item_number?.toLowerCase().includes(q) || s.platform?.toLowerCase().includes(q) || s.notes?.toLowerCase().includes(q);
+  });
+
+  const totalRevenue = filteredSales.reduce((acc, s) => acc + (s.sale_price || 0), 0);
+  const totalNetProfit = filteredSales.reduce((acc, s) => acc + (s.net_profit || 0), 0);
+  const totalSalesCost = filteredSales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
+  const overallROI = totalSalesCost > 0 ? ((totalNetProfit / totalSalesCost) * 100).toFixed(1) : '0.0';
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -263,12 +336,13 @@ function App() {
           ⭐ Wishlist ({wishlist.length})
         </button>
         <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
-          💰 Sales Log
+          💰 Sales Log ({sales.length})
         </button>
       </nav>
 
       {syncStatus && <div className="sync-banner">{syncStatus}</div>}
 
+      {/* TAB 1: SETS INVENTORY */}
       {activeTab === 'sets' && (
         <>
           <section className="stats-row">
@@ -319,6 +393,7 @@ function App() {
         </>
       )}
 
+      {/* TAB 2: MINIFIGURES */}
       {activeTab === 'minifigs' && (
         <>
           <section className="stats-row">
@@ -362,6 +437,7 @@ function App() {
         </>
       )}
 
+      {/* TAB 3: WISHLIST */}
       {activeTab === 'wishlist' && (
         <>
           <section className="stats-row">
@@ -402,13 +478,55 @@ function App() {
         </>
       )}
 
+      {/* TAB 4: SALES LOG */}
       {activeTab === 'sales' && (
-        <div className="tab-placeholder">
-          <h2>💰 Sales & Profit Tracker</h2>
-          <p>Sales logging coming up next!</p>
-        </div>
+        <>
+          <section className="stats-row">
+            <div className="stat-card"><h3>Total Sales</h3><p>{filteredSales.length}</p></div>
+            <div className="stat-card"><h3>Total Revenue</h3><p>${totalRevenue.toFixed(2)}</p></div>
+            <div className="stat-card"><h3>Net Profit</h3><p style={{ color: totalNetProfit >= 0 ? '#28a745' : '#dc3545' }}>${totalNetProfit.toFixed(2)}</p></div>
+            <div className="stat-card"><h3>ROI</h3><p>{overallROI}%</p></div>
+          </section>
+
+          <section className="controls-row">
+            <input type="text" placeholder="Search sales..." value={salesSearchQuery} onChange={(e) => setSalesSearchQuery(e.target.value)} className="search-input" />
+            <button className="btn btn-success" onClick={() => handleOpenSaleModal()}>+ Add Sale</button>
+          </section>
+
+          {loadingSales ? <div className="loading-spinner">Loading sales log...</div> : (
+            <div className="table-responsive">
+              <table className="inventory-table">
+                <thead>
+                  <tr><th>Date</th><th>Item #</th><th>Name</th><th>Platform</th><th>Gross Sale</th><th>Cost</th><th>Fees</th><th>Shipping</th><th>Net Profit</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {filteredSales.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.sale_date || '-'}</td>
+                      <td><strong>{item.item_number}</strong></td>
+                      <td>{item.item_name}</td>
+                      <td>{item.platform || '-'}</td>
+                      <td>${(item.sale_price || 0).toFixed(2)}</td>
+                      <td>${(item.cost_price || 0).toFixed(2)}</td>
+                      <td>${(item.platform_fees || 0).toFixed(2)}</td>
+                      <td>${(item.shipping_cost || 0).toFixed(2)}</td>
+                      <td style={{ color: (item.net_profit || 0) >= 0 ? '#28a745' : '#dc3545', fontWeight: 'bold' }}>
+                        ${(item.net_profit || 0).toFixed(2)}
+                      </td>
+                      <td className="actions-cell">
+                        <button className="btn-icon" onClick={() => handleOpenSaleModal(item)}>✏️</button>
+                        <button className="btn-icon text-danger" onClick={() => handleDeleteSale(item.id)}>🗑️</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
+      {/* Add / Edit Set Modal */}
       {isModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-content">
@@ -441,6 +559,7 @@ function App() {
         </div>
       )}
 
+      {/* Add / Edit Minifig Modal */}
       {isFigModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-content">
@@ -466,6 +585,7 @@ function App() {
         </div>
       )}
 
+      {/* Add / Edit Wishlist Modal */}
       {isWishModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-content">
@@ -484,6 +604,39 @@ function App() {
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsWishModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary">Save to Wishlist</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Sale Modal */}
+      {isSaleModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <h2>{editingSale ? 'Edit Sale Entry' : 'Log New Sale'}</h2>
+            <form onSubmit={handleSaleFormSubmit}>
+              <div className="form-row">
+                <div className="form-group"><label>Item Number</label><input type="text" required value={saleFormData.item_number} onChange={(e) => setSaleFormData({...saleFormData, item_number: e.target.value})}/></div>
+                <div className="form-group"><label>Item Type</label><select value={saleFormData.item_type} onChange={(e) => setSaleFormData({...saleFormData, item_type: e.target.value})}><option value="SET">Set</option><option value="MINIFIG">Minifigure</option></select></div>
+              </div>
+              <div className="form-group"><label>Item Name</label><input type="text" required value={saleFormData.item_name} onChange={(e) => setSaleFormData({...saleFormData, item_name: e.target.value})}/></div>
+              <div className="form-row">
+                <div className="form-group"><label>Sale Date</label><input type="date" value={saleFormData.sale_date} onChange={(e) => setSaleFormData({...saleFormData, sale_date: e.target.value})}/></div>
+                <div className="form-group"><label>Platform</label><select value={saleFormData.platform} onChange={(e) => setSaleFormData({...saleFormData, platform: e.target.value})}><option value="eBay">eBay</option><option value="BrickLink">BrickLink</option><option value="Mercari">Mercari</option><option value="Local">Local/Cash</option><option value="Other">Other</option></select></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Gross Sale Price ($)</label><input type="number" step="0.01" value={saleFormData.sale_price} onChange={(e) => setSaleFormData({...saleFormData, sale_price: parseFloat(e.target.value) || 0.0})}/></div>
+                <div className="form-group"><label>Item Cost ($)</label><input type="number" step="0.01" value={saleFormData.cost_price} onChange={(e) => setSaleFormData({...saleFormData, cost_price: parseFloat(e.target.value) || 0.0})}/></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Platform Fees ($)</label><input type="number" step="0.01" value={saleFormData.platform_fees} onChange={(e) => setSaleFormData({...saleFormData, platform_fees: parseFloat(e.target.value) || 0.0})}/></div>
+                <div className="form-group"><label>Shipping Cost ($)</label><input type="number" step="0.01" value={saleFormData.shipping_cost} onChange={(e) => setSaleFormData({...saleFormData, shipping_cost: parseFloat(e.target.value) || 0.0})}/></div>
+              </div>
+              <div className="form-group"><label>Notes</label><textarea rows="2" value={saleFormData.notes} onChange={(e) => setSaleFormData({...saleFormData, notes: e.target.value})}/></div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsSaleModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Sale</button>
               </div>
             </form>
           </div>
