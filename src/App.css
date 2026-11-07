@@ -6,14 +6,14 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #ffffff;
+  background-color: #f8f9fa;
   color: #1a1a1a;
   font-family: system-ui, -apple-system, sans-serif;
 }
 
 .app-container {
   padding: 15px;
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -43,16 +43,16 @@ body {
 .tab-bar {
   display: flex;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 15px;
   border-bottom: 2px solid #e0e0e0;
   padding-bottom: 8px;
   overflow-x: auto;
 }
 
 .tab-btn {
-  background: #f4f4f6;
+  background: #ffffff;
   border: 1px solid #ccc;
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-radius: 6px;
   font-weight: 600;
   color: #555;
@@ -84,16 +84,17 @@ body {
 }
 
 .stat-card {
-  background: #f8f9fa;
+  background: #ffffff;
   border: 1px solid #e0e0e0;
   padding: 12px;
   border-radius: 6px;
   text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .stat-card h3 {
   margin: 0 0 5px 0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #666;
   text-transform: uppercase;
 }
@@ -112,11 +113,15 @@ body {
   margin-bottom: 15px;
   flex-wrap: wrap;
   align-items: center;
+  background: #ffffff;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
 }
 
 .search-input {
   flex: 1;
-  min-width: 200px;
+  min-width: 220px;
   padding: 8px 12px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -126,6 +131,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .filter-group select {
@@ -141,24 +147,29 @@ body {
   border-radius: 4px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn-primary { background-color: #0066cc; color: white; }
 .btn-success { background-color: #28a745; color: white; }
 .btn-secondary { background-color: #6c757d; color: white; }
-.btn-icon { background: none; border: none; cursor: pointer; font-size: 1.1rem; }
+.btn-icon { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 2px 4px; }
 .text-danger { color: #dc3545; }
 
-/* Table & Thumbnail Formatting */
+/* Table Container & Horizontal Scroll Fix */
 .table-responsive {
   width: 100%;
   overflow-x: auto;
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .inventory-table {
   width: 100%;
+  min-width: 1050px; /* Ensures all 12 columns fit comfortably */
   border-collapse: collapse;
-  margin-top: 10px;
 }
 
 .inventory-table th, 
@@ -167,49 +178,70 @@ body {
   border-bottom: 1px solid #e0e0e0;
   text-align: left;
   vertical-align: middle;
+  font-size: 0.9rem;
 }
 
 .inventory-table th {
   background-color: #f1f3f5;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   color: #495057;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
+/* Specific Column Formatting */
 .img-cell {
-  width: 60px;
+  width: 55px;
   text-align: center;
 }
 
 .set-thumbnail {
-  width: 50px;
-  height: 50px;
+  width: 45px;
+  height: 45px;
   object-fit: contain;
   border-radius: 4px;
   background-color: #ffffff;
   display: block;
+  margin: 0 auto;
 }
 
 .no-img {
-  width: 50px;
-  height: 50px;
+  width: 45px;
+  height: 45px;
   background: #eee;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #888;
   border-radius: 4px;
+  margin: 0 auto;
+}
+
+/* Constrain column sizes so notes don't break the layout */
+.inventory-table td:nth-child(3) { /* Name */
+  max-width: 180px;
+  word-wrap: break-word;
+}
+
+.inventory-table td:nth-child(11) { /* Item Notes */
+  max-width: 220px;
+  word-wrap: break-word;
+  font-size: 0.85rem;
+  color: #555;
 }
 
 .actions-cell {
   white-space: nowrap;
+  text-align: center;
+  width: 70px;
 }
 
 .tab-placeholder {
   text-align: center;
   padding: 50px 20px;
-  background: #f9f9fb;
+  background: #ffffff;
   border-radius: 8px;
   border: 1px dashed #ccc;
   margin-top: 10px;
@@ -227,6 +259,7 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 15px;
 }
 
 .modal-content {
@@ -235,6 +268,8 @@ body {
   border-radius: 8px;
   width: 100%;
   max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
@@ -250,7 +285,8 @@ body {
 }
 
 .form-group input, 
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 8px;
   border: 1px solid #ccc;
