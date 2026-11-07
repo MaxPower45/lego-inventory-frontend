@@ -17,28 +17,23 @@ const formatImageUrl = (url, itemNumber, isMinifig = false) => {
 };
 
 function App() {
-  const [activeTab, setActiveTab] = useState('sets'); // 'sets', 'minifigs', 'wishlist', 'sales'
+  const [activeTab, setActiveTab] = useState('sets');
   
-  // Sets State
   const [sets, setSets] = useState([]);
   const [loadingSets, setLoadingSets] = useState(true);
   const [filterPolybag, setFilterPolybag] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Minifigs State
   const [minifigs, setMinifigs] = useState([]);
   const [loadingMinifigs, setLoadingMinifigs] = useState(false);
   const [minifigSearchQuery, setMinifigSearchQuery] = useState('');
 
-  // Wishlist State
   const [wishlist, setWishlist] = useState([]);
   const [loadingWishlist, setLoadingWishlist] = useState(false);
   const [wishlistSearchQuery, setWishlistSearchQuery] = useState('');
 
-  // Global Sync Status
   const [syncStatus, setSyncStatus] = useState('');
 
-  // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [formData, setFormData] = useState({
@@ -59,7 +54,6 @@ function App() {
     item_number: '', item_name: '', item_type: 'SET', target_price: 0.0, priority: 'Medium', notes: ''
   });
 
-  // Fetch Operations
   const fetchSets = async () => {
     setLoadingSets(true);
     try {
@@ -104,7 +98,6 @@ function App() {
     }
   };
 
-  // --- SET HANDLERS ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -142,7 +135,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- MINIFIG HANDLERS ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
@@ -178,7 +170,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- WISHLIST HANDLERS ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -213,9 +204,293 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- FILTER & CALCULATIONS ---
   const filteredSets = sets.filter(s => {
-    const matchesSearch = s.set_name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          s.set_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          s.store?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          s.item_notes?.toLowerCase
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
+                          s.set_number?.toLowerCase().includes(q) ||
+                          s.store?.toLowerCase().includes(q) ||
+                          s.item_notes?.toLowerCase().includes(q);
+    if (filterPolybag === 'YES') return matchesSearch && (s.polybag?.toLowerCase() === 'yes' || s.polybag?.toLowerCase() === 'true');
+    if (filterPolybag === 'NO') return matchesSearch && (!s.polybag || s.polybag?.toLowerCase() === 'no' || s.polybag?.toLowerCase() === 'false');
+    return matchesSearch;
+  });
+
+  const totalSets = filteredSets.reduce((acc, s) => acc + (s.quantity || 1), 0);
+  const totalCost = filteredSets.reduce((acc, s) => acc + ((s.purchase_price || 0) * (s.quantity || 1)), 0);
+  const totalMarketVal = filteredSets.reduce((acc, s) => {
+    const isUsed = s.condition && s.condition.toLowerCase() === 'used';
+    const price = isUsed ? (s.market_price_used || 0) : (s.market_price_new || 0);
+    return acc + (price * (s.quantity || 1));
+  }, 0);
+
+  const filteredMinifigs = minifigs.filter(f => {
+    const q = minifigSearchQuery.toLowerCase();
+    return f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
+  });
+
+  const totalFigQty = filteredMinifigs.reduce((acc, f) => acc + (f.quantity || 1), 0);
+  const totalFigCost = filteredMinifigs.reduce((acc, f) => acc + ((f.purchase_price || 0) * (f.quantity || 1)), 0);
+  const totalFigMarketVal = filteredMinifigs.reduce((acc, f) => {
+    const isUsed = f.condition && f.condition.toLowerCase() === 'used';
+    const price = isUsed ? (f.market_price_used || 0) : (f.market_price_new || 0);
+    return acc + (price * (f.quantity || 1));
+  }, 0);
+
+  const filteredWishlist = wishlist.filter(w => {
+    const q = wishlistSearchQuery.toLowerCase();
+    return w.item_name?.toLowerCase().includes(q) || w.item_number?.toLowerCase().includes(q) || w.notes?.toLowerCase().includes(q);
+  });
+
+  const totalWishTarget = filteredWishlist.reduce((acc, w) => acc + (w.target_price || 0), 0);
+
+  return (
+    <div className="app-container">
+      <header className="app-header">
+        <h1>🧱 LEGO Collection Tracker</h1>
+        <div className="header-actions">
+          <button className="btn btn-primary" onClick={handleSync}>Sync BrickLink Data</button>
+        </div>
+      </header>
+
+      <nav className="tab-bar">
+        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => setActiveTab('sets')}>
+          📦 Sets ({sets.length})
+        </button>
+        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => setActiveTab('minifigs')}>
+          🦸 Minifigures ({minifigs.length})
+        </button>
+        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => setActiveTab('wishlist')}>
+          ⭐ Wishlist ({wishlist.length})
+        </button>
+        <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
+          💰 Sales Log
+        </button>
+      </nav>
+
+      {syncStatus && <div className="sync-banner">{syncStatus}</div>}
+
+      {activeTab === 'sets' && (
+        <>
+          <section className="stats-row">
+            <div className="stat-card"><h3>Total Items</h3><p>{totalSets}</p></div>
+            <div className="stat-card"><h3>Total Investment</h3><p>${totalCost.toFixed(2)}</p></div>
+            <div className="stat-card"><h3>Market Value</h3><p>${totalMarketVal.toFixed(2)}</p></div>
+          </section>
+
+          <section className="controls-row">
+            <input type="text" placeholder="Search name, set #, store, notes..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
+            <div className="filter-group">
+              <label>Polybag:</label>
+              <select value={filterPolybag} onChange={(e) => setFilterPolybag(e.target.value)}>
+                <option value="ALL">All</option><option value="YES">Polybags Only</option><option value="NO">Sets Only</option>
+              </select>
+            </div>
+            <button className="btn btn-success" onClick={() => handleOpenModal()}>+ Add Set</button>
+          </section>
+
+          {loadingSets ? <div className="loading-spinner">Loading inventory...</div> : (
+            <div className="table-responsive">
+              <table className="inventory-table">
+                <thead>
+                  <tr><th>Image</th><th>Set #</th><th>Name</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Purchased</th><th>Store</th><th>Notes</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {filteredSets.map((item) => {
+                    const imageUrl = formatImageUrl(item.image_url, item.set_number);
+                    const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+                    const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+                    return (
+                      <tr key={item.id}>
+                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td><strong>{item.set_number}</strong></td><td>{item.set_name}</td><td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
+                        <td>${(item.purchase_price || 0).toFixed(2)}</td><td>${activeMarketPrice.toFixed(2)}</td><td>{item.new_shelf || '-'}</td>
+                        <td>{item.purchase_dt || '-'}</td><td>{item.store || '-'}</td><td>{item.item_notes || '-'}</td>
+                        <td className="actions-cell">
+                          <button className="btn-icon" onClick={() => handleOpenModal(item)}>✏️</button>
+                          <button className="btn-icon text-danger" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'minifigs' && (
+        <>
+          <section className="stats-row">
+            <div className="stat-card"><h3>Total Minifigs</h3><p>{totalFigQty}</p></div>
+            <div className="stat-card"><h3>Total Cost</h3><p>${totalFigCost.toFixed(2)}</p></div>
+            <div className="stat-card"><h3>Market Value</h3><p>${totalFigMarketVal.toFixed(2)}</p></div>
+          </section>
+
+          <section className="controls-row">
+            <input type="text" placeholder="Search minifigs..." value={minifigSearchQuery} onChange={(e) => setMinifigSearchQuery(e.target.value)} className="search-input" />
+            <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
+          </section>
+
+          {loadingMinifigs ? <div className="loading-spinner">Loading minifigures...</div> : (
+            <div className="table-responsive">
+              <table className="inventory-table">
+                <thead>
+                  <tr><th>Image</th><th>Fig #</th><th>Name</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Notes</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {filteredMinifigs.map((item) => {
+                    const imageUrl = formatImageUrl(item.image_url, item.fig_number, true);
+                    const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+                    const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+                    return (
+                      <tr key={item.id}>
+                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td><strong>{item.fig_number}</strong></td><td>{item.fig_name}</td><td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
+                        <td>${(item.purchase_price || 0).toFixed(2)}</td><td>${activeMarketPrice.toFixed(2)}</td><td>{item.shelf_location || '-'}</td><td>{item.notes || '-'}</td>
+                        <td className="actions-cell">
+                          <button className="btn-icon" onClick={() => handleOpenFigModal(item)}>✏️</button>
+                          <button className="btn-icon text-danger" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'wishlist' && (
+        <>
+          <section className="stats-row">
+            <div className="stat-card"><h3>Wishlist Items</h3><p>{filteredWishlist.length}</p></div>
+            <div className="stat-card"><h3>Total Target Cost</h3><p>${totalWishTarget.toFixed(2)}</p></div>
+          </section>
+
+          <section className="controls-row">
+            <input type="text" placeholder="Search wishlist items..." value={wishlistSearchQuery} onChange={(e) => setWishlistSearchQuery(e.target.value)} className="search-input" />
+            <button className="btn btn-success" onClick={() => handleOpenWishModal()}>+ Add to Wishlist</button>
+          </section>
+
+          {loadingWishlist ? <div className="loading-spinner">Loading wishlist...</div> : (
+            <div className="table-responsive">
+              <table className="inventory-table">
+                <thead>
+                  <tr><th>Image</th><th>Item #</th><th>Name</th><th>Type</th><th>Priority</th><th>Target Price</th><th>Market (New)</th><th>Notes</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {filteredWishlist.map((item) => {
+                    const imageUrl = formatImageUrl(item.image_url, item.item_number, item.item_type === 'MINIFIG');
+                    return (
+                      <tr key={item.id}>
+                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td><strong>{item.item_number}</strong></td><td>{item.item_name}</td><td>{item.item_type}</td><td>{item.priority}</td>
+                        <td>${(item.target_price || 0).toFixed(2)}</td><td>${(item.market_price_new || 0).toFixed(2)}</td><td>{item.notes || '-'}</td>
+                        <td className="actions-cell">
+                          <button className="btn-icon" onClick={() => handleOpenWishModal(item)}>✏️</button>
+                          <button className="btn-icon text-danger" onClick={() => handleDeleteWish(item.id)}>🗑️</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'sales' && (
+        <div className="tab-placeholder">
+          <h2>💰 Sales & Profit Tracker</h2>
+          <p>Sales logging coming up next!</p>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <h2>{editingSet ? 'Edit Set' : 'Add New Set'}</h2>
+            <form onSubmit={handleFormSubmit}>
+              <div className="form-group"><label>Set Number</label><input type="text" required value={formData.set_number} onChange={(e) => setFormData({...formData, set_number: e.target.value})}/></div>
+              <div className="form-group"><label>Set Name</label><input type="text" required value={formData.set_name} onChange={(e) => setFormData({...formData, set_name: e.target.value})}/></div>
+              <div className="form-row">
+                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 1})}/></div>
+                <div className="form-group"><label>Condition</label><select value={formData.condition} onChange={(e) => setFormData({...formData, condition: e.target.value})}><option value="New">New</option><option value="Used">Used</option></select></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Purchase Price ($)</label><input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0.0})}/></div>
+                <div className="form-group"><label>Purchase Date</label><input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})}/></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Store Purchased</label><input type="text" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})}/></div>
+                <div className="form-group"><label>Shelf Location</label><input type="text" value={formData.new_shelf} onChange={(e) => setFormData({...formData, new_shelf: e.target.value})}/></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Polybag?</label><select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}><option value="No">No</option><option value="Yes">Yes</option></select></div>
+              </div>
+              <div className="form-group"><label>Item Notes</label><textarea rows="2" value={formData.item_notes} onChange={(e) => setFormData({...formData, item_notes: e.target.value})}/></div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Set</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isFigModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <h2>{editingFig ? 'Edit Minifigure' : 'Add New Minifigure'}</h2>
+            <form onSubmit={handleFigFormSubmit}>
+              <div className="form-group"><label>Fig Number (e.g. sw0001a)</label><input type="text" required value={figFormData.fig_number} onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})}/></div>
+              <div className="form-group"><label>Minifigure Name</label><input type="text" required value={figFormData.fig_name} onChange={(e) => setFigFormData({...figFormData, fig_name: e.target.value})}/></div>
+              <div className="form-row">
+                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={figFormData.quantity} onChange={(e) => setFigFormData({...figFormData, quantity: parseInt(e.target.value) || 1})}/></div>
+                <div className="form-group"><label>Condition</label><select value={figFormData.condition} onChange={(e) => setFigFormData({...figFormData, condition: e.target.value})}><option value="New">New</option><option value="Used">Used</option></select></div>
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Purchase Price ($)</label><input type="number" step="0.01" value={figFormData.purchase_price} onChange={(e) => setFigFormData({...figFormData, purchase_price: parseFloat(e.target.value) || 0.0})}/></div>
+                <div className="form-group"><label>Shelf Location</label><input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})}/></div>
+              </div>
+              <div className="form-group"><label>Notes</label><textarea rows="2" value={figFormData.notes} onChange={(e) => setFigFormData({...figFormData, notes: e.target.value})}/></div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsFigModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Minifigure</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isWishModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <h2>{editingWish ? 'Edit Wishlist Item' : 'Add to Wishlist'}</h2>
+            <form onSubmit={handleWishFormSubmit}>
+              <div className="form-row">
+                <div className="form-group"><label>Item Number</label><input type="text" required value={wishFormData.item_number} onChange={(e) => setWishFormData({...wishFormData, item_number: e.target.value})}/></div>
+                <div className="form-group"><label>Item Type</label><select value={wishFormData.item_type} onChange={(e) => setWishFormData({...wishFormData, item_type: e.target.value})}><option value="SET">Set</option><option value="MINIFIG">Minifigure</option></select></div>
+              </div>
+              <div className="form-group"><label>Item Name</label><input type="text" required value={wishFormData.item_name} onChange={(e) => setWishFormData({...wishFormData, item_name: e.target.value})}/></div>
+              <div className="form-row">
+                <div className="form-group"><label>Target Price ($)</label><input type="number" step="0.01" value={wishFormData.target_price} onChange={(e) => setWishFormData({...wishFormData, target_price: parseFloat(e.target.value) || 0.0})}/></div>
+                <div className="form-group"><label>Priority</label><select value={wishFormData.priority} onChange={(e) => setWishFormData({...wishFormData, priority: e.target.value})}><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></div>
+              </div>
+              <div className="form-group"><label>Notes / Deal Criteria</label><textarea rows="2" value={wishFormData.notes} onChange={(e) => setWishFormData({...wishFormData, notes: e.target.value})}/></div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsWishModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save to Wishlist</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
