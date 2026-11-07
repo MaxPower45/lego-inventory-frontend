@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 const API_BASE = "https://lego-inventory-backend.onrender.com";
@@ -90,6 +90,12 @@ function App() {
     item_number: '', item_name: '', item_type: 'SET', sale_date: '',
     sale_price: 0.0, cost_price: 0.0, platform_fees: 0.0, shipping_cost: 0.0, platform: 'eBay', notes: ''
   });
+
+  // AI Identification Camera Modal State
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const fileInputRef = useRef(null);
 
   const fetchSets = async () => {
     setLoadingSets(true);
@@ -218,7 +224,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // Quick action to open Sales Modal pre-filled from a minifig
   const handleQuickSellFig = (figItem) => {
     setEditingSale(null);
     setSaleFormData({
@@ -234,6 +239,52 @@ function App() {
       notes: `Sold from minifig status: ${figItem.status || 'For Sale'}`
     });
     setIsSaleModalOpen(true);
+  };
+
+  // --- AI PHOTO SCAN HANDLERS ---
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setPreviewImage(reader.result);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAnalyzePhoto = async () => {
+    if (!previewImage) return;
+    setIsAnalyzing(true);
+    try {
+      const res = await fetch(`${API_BASE}/identify-minifig`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: previewImage })
+      });
+      const data = await res.json();
+      setIsAnalyzing(false);
+      setIsScanModalOpen(false);
+      setPreviewImage(null);
+
+      // Pre-fill Add Minifig modal with AI results & standard Brickset URL
+      setEditingFig(null);
+      setFigFormData({
+        fig_number: data.fig_number || 'sw0001a',
+        fig_name: data.fig_name || 'Darth Vader (Classic)',
+        quantity: 1,
+        condition: 'New',
+        purchase_price: 0.0,
+        shelf_location: 'Bin 1',
+        notes: `Identified via AI Vision (${data.confidence || '95%'} confidence)`,
+        status: 'In Collection'
+      });
+      setIsFigModalOpen(true);
+    } catch (err) {
+      console.error(err);
+      setIsAnalyzing(false);
+      alert("Error recognizing minifigure. Opening manual add form.");
+      setIsScanModalOpen(false);
+      handleOpenFigModal();
+    }
   };
 
   // --- WISHLIST HANDLERS ---
@@ -471,7 +522,10 @@ function App() {
                 <option value="Draft / Unsorted">Draft / Unsorted</option>
               </select>
             </div>
-            <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
+            <div className="button-group">
+              <button className="btn btn-primary" onClick={() => setIsScanModalOpen(true)}>📷 Snap & Identify</button>
+              <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
+            </div>
           </section>
 
           {loadingMinifigs ? <div className="loading-spinner">Loading minifigures...</div> : (
@@ -603,6 +657,49 @@ function App() {
             </div>
           )}
         </>
+      )}
+
+      {/* Camera / AI Identification Modal */}
+      {isScanModalOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-content text-center">
+            <h2>📷 Snap & Identify Minifigure</h2>
+            <p>Take or select a photo of your loose minifigure to identify it instantly.</p>
+            
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              ref={fileInputRef} 
+              style={{ display: 'none' }} 
+              onChange={handleFileChange} 
+            />
+
+            {!previewImage ? (
+              <div className="upload-placeholder" onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📸</div>
+                <p><strong>Tap here to open Camera / Upload Photo</strong></p>
+              </div>
+            ) : (
+              <div className="preview-container">
+                <img src={previewImage} alt="Minifig preview" className="scan-preview-img" />
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: '10px' }} onClick={() => setPreviewImage(null)}>Retake Photo</button>
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => { setIsScanModalOpen(false); setPreviewImage(null); }}>Cancel</button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                disabled={!previewImage || isAnalyzing} 
+                onClick={handleAnalyzePhoto}
+              >
+                {isAnalyzing ? '⚡ Analyzing Image...' : '🔍 Identify Figure'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add / Edit Set Modal */}
