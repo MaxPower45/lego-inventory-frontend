@@ -51,6 +51,7 @@ function App() {
   const [minifigs, setMinifigs] = useState([]);
   const [loadingMinifigs, setLoadingMinifigs] = useState(false);
   const [minifigSearchQuery, setMinifigSearchQuery] = useState('');
+  const [minifigStatusFilter, setMinifigStatusFilter] = useState('ALL');
 
   const [wishlist, setWishlist] = useState([]);
   const [loadingWishlist, setLoadingWishlist] = useState(false);
@@ -62,6 +63,7 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
+  // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [formData, setFormData] = useState({
@@ -73,7 +75,7 @@ function App() {
   const [editingFig, setEditingFig] = useState(null);
   const [figFormData, setFigFormData] = useState({
     fig_number: '', fig_name: '', quantity: 1, condition: 'New',
-    purchase_price: 0.0, shelf_location: '', notes: ''
+    purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
   });
 
   const [isWishModalOpen, setIsWishModalOpen] = useState(false);
@@ -142,6 +144,7 @@ function App() {
     }
   };
 
+  // --- SET HANDLERS ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -179,18 +182,19 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- MINIFIG HANDLERS ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
       setFigFormData({
         fig_number: figItem.fig_number || '', fig_name: figItem.fig_name || '', quantity: figItem.quantity || 1,
         condition: figItem.condition || 'New', purchase_price: figItem.purchase_price || 0.0,
-        shelf_location: figItem.shelf_location || '', notes: figItem.notes || ''
+        shelf_location: figItem.shelf_location || '', notes: figItem.notes || '', status: figItem.status || 'In Collection'
       });
     } else {
       setEditingFig(null);
       setFigFormData({
-        fig_number: '', fig_name: '', quantity: 1, condition: 'New', purchase_price: 0.0, shelf_location: '', notes: ''
+        fig_number: '', fig_name: '', quantity: 1, condition: 'New', purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
       });
     }
     setIsFigModalOpen(true);
@@ -214,6 +218,25 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // Quick action to open Sales Modal pre-filled from a minifig
+  const handleQuickSellFig = (figItem) => {
+    setEditingSale(null);
+    setSaleFormData({
+      item_number: figItem.fig_number || '',
+      item_name: figItem.fig_name || '',
+      item_type: 'MINIFIG',
+      sale_date: new Date().toISOString().split('T')[0],
+      sale_price: figItem.market_price_used || figItem.market_price_new || 0.0,
+      cost_price: figItem.purchase_price || 0.0,
+      platform_fees: 0.0,
+      shipping_cost: 0.0,
+      platform: 'eBay',
+      notes: `Sold from minifig status: ${figItem.status || 'For Sale'}`
+    });
+    setIsSaleModalOpen(true);
+  };
+
+  // --- WISHLIST HANDLERS ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -248,6 +271,7 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- SALES HANDLERS ---
   const handleOpenSaleModal = (saleItem = null) => {
     if (saleItem) {
       setEditingSale(saleItem);
@@ -285,6 +309,7 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  // --- CALCULATIONS ---
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
@@ -306,7 +331,11 @@ function App() {
 
   const filteredMinifigs = minifigs.filter(f => {
     const q = minifigSearchQuery.toLowerCase();
-    return f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
+    const matchesSearch = f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
+    if (minifigStatusFilter !== 'ALL') {
+      return matchesSearch && (f.status || 'In Collection') === minifigStatusFilter;
+    }
+    return matchesSearch;
   });
 
   const totalFigQty = filteredMinifigs.reduce((acc, f) => acc + (f.quantity || 1), 0);
@@ -433,6 +462,15 @@ function App() {
 
           <section className="controls-row">
             <input type="text" placeholder="Search minifigs..." value={minifigSearchQuery} onChange={(e) => setMinifigSearchQuery(e.target.value)} className="search-input" />
+            <div className="filter-group">
+              <label>Status:</label>
+              <select value={minifigStatusFilter} onChange={(e) => setMinifigStatusFilter(e.target.value)}>
+                <option value="ALL">All Statuses</option>
+                <option value="In Collection">In Collection</option>
+                <option value="For Sale">For Sale</option>
+                <option value="Draft / Unsorted">Draft / Unsorted</option>
+              </select>
+            </div>
             <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
           </section>
 
@@ -440,21 +478,33 @@ function App() {
             <div className="table-responsive">
               <table className="inventory-table">
                 <thead>
-                  <tr><th>Image</th><th>Fig #</th><th>Name</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Notes</th><th>Actions</th></tr>
+                  <tr><th>Image</th><th>Fig #</th><th>Name</th><th>Status</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Notes</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {filteredMinifigs.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.fig_number, true);
                     const isUsed = item.condition && item.condition.toLowerCase() === 'used';
                     const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+                    const status = item.status || 'In Collection';
+                    const isForSale = status === 'For Sale';
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.fig_number}</strong></td><td>{item.fig_name}</td><td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
+                        <td><strong>{item.fig_number}</strong></td>
+                        <td>{item.fig_name}</td>
+                        <td>
+                          <span className={`status-badge ${isForSale ? 'badge-sale' : status === 'Draft / Unsorted' ? 'badge-draft' : 'badge-collection'}`}>
+                            {status}
+                          </span>
+                        </td>
+                        <td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
                         <td>${(item.purchase_price || 0).toFixed(2)}</td><td>${activeMarketPrice.toFixed(2)}</td><td>{item.shelf_location || '-'}</td><td>{item.notes || '-'}</td>
                         <td className="actions-cell">
-                          <button className="btn-icon" onClick={() => handleOpenFigModal(item)}>✏️</button>
-                          <button className="btn-icon text-danger" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
+                          {isForSale && (
+                            <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
+                          )}
+                          <button className="btn-icon" title="Edit" onClick={() => handleOpenFigModal(item)}>✏️</button>
+                          <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
                         </td>
                       </tr>
                     );
@@ -597,13 +647,20 @@ function App() {
               <div className="form-group"><label>Fig Number (e.g. sw0001a)</label><input type="text" required value={figFormData.fig_number} onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})}/></div>
               <div className="form-group"><label>Minifigure Name</label><input type="text" required value={figFormData.fig_name} onChange={(e) => setFigFormData({...figFormData, fig_name: e.target.value})}/></div>
               <div className="form-row">
-                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={figFormData.quantity} onChange={(e) => setFigFormData({...figFormData, quantity: parseInt(e.target.value) || 1})}/></div>
+                <div className="form-group"><label>Status</label>
+                  <select value={figFormData.status} onChange={(e) => setFigFormData({...figFormData, status: e.target.value})}>
+                    <option value="In Collection">In Collection</option>
+                    <option value="For Sale">For Sale</option>
+                    <option value="Draft / Unsorted">Draft / Unsorted</option>
+                  </select>
+                </div>
                 <div className="form-group"><label>Condition</label><select value={figFormData.condition} onChange={(e) => setFigFormData({...figFormData, condition: e.target.value})}><option value="New">New</option><option value="Used">Used</option></select></div>
               </div>
               <div className="form-row">
+                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={figFormData.quantity} onChange={(e) => setFigFormData({...figFormData, quantity: parseInt(e.target.value) || 1})}/></div>
                 <div className="form-group"><label>Purchase Price ($)</label><input type="number" step="0.01" value={figFormData.purchase_price} onChange={(e) => setFigFormData({...figFormData, purchase_price: parseFloat(e.target.value) || 0.0})}/></div>
-                <div className="form-group"><label>Shelf Location</label><input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})}/></div>
               </div>
+              <div className="form-group"><label>Shelf / Storage Bin</label><input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})}/></div>
               <div className="form-group"><label>Notes</label><textarea rows="2" value={figFormData.notes} onChange={(e) => setFigFormData({...figFormData, notes: e.target.value})}/></div>
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setIsFigModalOpen(false)}>Cancel</button>
