@@ -182,3 +182,39 @@
     border-right-color: var(--border);
   }
 }
+/* Tab Navigation Styling */
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.tab-btn {
+  background: #f4f4f6;
+  border: 1px solid #ccc;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.tab-btn.active {
+  background: #0066cc;
+  color: #ffffff;
+  border-color: #0066cc;
+}
+
+.tab-placeholder {
+  text-align: center;
+  padding: 50px 20px;
+  background: #f9f9fb;
+  border-radius: 8px;
+  border: 1px dashed #ccc;
+  margin-top: 10px;
+}
