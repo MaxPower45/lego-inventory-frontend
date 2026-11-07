@@ -15,6 +15,7 @@ const formatImageUrl = (url, itemNumber, isMinifig = false) => {
   if (url && url.startsWith('http://')) return url.replace('http://', 'https://');
   return url;
 };
+
 const exportToCSV = (data, filename = 'lego_inventory.csv') => {
   if (!data || !data.length) {
     alert("No data available to export.");
@@ -38,6 +39,7 @@ const exportToCSV = (data, filename = 'lego_inventory.csv') => {
   a.setAttribute('download', filename);
   a.click();
 };
+
 function App() {
   const [activeTab, setActiveTab] = useState('sets');
   
@@ -60,7 +62,6 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
-  // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [formData, setFormData] = useState({
@@ -141,7 +142,6 @@ function App() {
     }
   };
 
-  // --- SET HANDLERS ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -179,7 +179,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- MINIFIG HANDLERS ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
@@ -215,7 +214,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- WISHLIST HANDLERS ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -250,7 +248,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- SALES HANDLERS ---
   const handleOpenSaleModal = (saleItem = null) => {
     if (saleItem) {
       setEditingSale(saleItem);
@@ -288,7 +285,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- CALCULATIONS ---
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
@@ -343,6 +339,17 @@ function App() {
       <header className="app-header">
         <h1>🧱 LEGO Collection Tracker</h1>
         <div className="header-actions">
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => exportToCSV(
+              activeTab === 'minifigs' ? minifigs : 
+              activeTab === 'wishlist' ? wishlist : 
+              activeTab === 'sales' ? sales : sets, 
+              `${activeTab}_export.csv`
+            )}
+          >
+            📥 Export {activeTab.toUpperCase()} CSV
+          </button>
           <button className="btn btn-primary" onClick={handleSync}>Sync BrickLink Data</button>
         </div>
       </header>
