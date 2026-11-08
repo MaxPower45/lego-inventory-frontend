@@ -63,6 +63,10 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
+  // Column Sort States
+  const [sortField, setSortField] = useState('set_number');
+  const [sortOrder, setSortOrder] = useState('asc');
+
   // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
@@ -135,6 +139,15 @@ function App() {
     fetchWishlist();
     fetchSales();
   }, []);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
 
   const handleSync = async () => {
     setSyncStatus('Syncing with BrickLink API...');
@@ -265,7 +278,6 @@ function App() {
       setIsScanModalOpen(false);
       setPreviewImage(null);
 
-      // Pre-fill Add Minifig modal with AI results & standard Brickset URL
       setEditingFig(null);
       setFigFormData({
         fig_number: data.fig_number || 'sw0001a',
@@ -360,7 +372,29 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- CALCULATIONS ---
+  // --- GENERIC SORTING HELPER ---
+  const sortData = (data, getValFunc) => {
+    return [...data].sort((a, b) => {
+      let aVal = getValFunc(a, sortField);
+      let bVal = getValFunc(b, sortField);
+
+      if (aVal === null || aVal === undefined) aVal = '';
+      if (bVal === null || bVal === undefined) bVal = '';
+
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      aVal = aVal.toString().toLowerCase();
+      bVal = bVal.toString().toLowerCase();
+
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // --- FILTER & SORT SETS ---
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
@@ -372,6 +406,14 @@ function App() {
     return matchesSearch;
   });
 
+  const sortedSets = sortData(filteredSets, (item, field) => {
+    if (field === 'market_price') {
+      const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+      return isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+    }
+    return item[field];
+  });
+
   const totalSets = filteredSets.reduce((acc, s) => acc + (s.quantity || 1), 0);
   const totalCost = filteredSets.reduce((acc, s) => acc + ((s.purchase_price || 0) * (s.quantity || 1)), 0);
   const totalMarketVal = filteredSets.reduce((acc, s) => {
@@ -380,6 +422,7 @@ function App() {
     return acc + (price * (s.quantity || 1));
   }, 0);
 
+  // --- FILTER & SORT MINIFIGS ---
   const filteredMinifigs = minifigs.filter(f => {
     const q = minifigSearchQuery.toLowerCase();
     const matchesSearch = f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
@@ -387,6 +430,14 @@ function App() {
       return matchesSearch && (f.status || 'In Collection') === minifigStatusFilter;
     }
     return matchesSearch;
+  });
+
+  const sortedMinifigs = sortData(filteredMinifigs, (item, field) => {
+    if (field === 'market_price') {
+      const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+      return isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+    }
+    return item[field];
   });
 
   const totalFigQty = filteredMinifigs.reduce((acc, f) => acc + (f.quantity || 1), 0);
@@ -397,22 +448,33 @@ function App() {
     return acc + (price * (f.quantity || 1));
   }, 0);
 
+  // --- FILTER & SORT WISHLIST ---
   const filteredWishlist = wishlist.filter(w => {
     const q = wishlistSearchQuery.toLowerCase();
     return w.item_name?.toLowerCase().includes(q) || w.item_number?.toLowerCase().includes(q) || w.notes?.toLowerCase().includes(q);
   });
 
+  const sortedWishlist = sortData(filteredWishlist, (item, field) => item[field]);
+
   const totalWishTarget = filteredWishlist.reduce((acc, w) => acc + (w.target_price || 0), 0);
 
+  // --- FILTER & SORT SALES ---
   const filteredSales = sales.filter(s => {
     const q = salesSearchQuery.toLowerCase();
     return s.item_name?.toLowerCase().includes(q) || s.item_number?.toLowerCase().includes(q) || s.platform?.toLowerCase().includes(q) || s.notes?.toLowerCase().includes(q);
   });
 
+  const sortedSales = sortData(filteredSales, (item, field) => item[field]);
+
   const totalRevenue = filteredSales.reduce((acc, s) => acc + (s.sale_price || 0), 0);
   const totalNetProfit = filteredSales.reduce((acc, s) => acc + (s.net_profit || 0), 0);
   const totalSalesCost = filteredSales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
   const overallROI = totalSalesCost > 0 ? ((totalNetProfit / totalSalesCost) * 100).toFixed(1) : '0.0';
+
+  const renderSortArrow = (field) => {
+    if (sortField !== field) return null;
+    return sortOrder === 'asc' ? ' ▲' : ' ▼';
+  };
 
   return (
     <div className="app-container">
@@ -435,16 +497,16 @@ function App() {
       </header>
 
       <nav className="tab-bar">
-        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => setActiveTab('sets')}>
+        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => { setActiveTab('sets'); setSortField('set_number'); }}>
           📦 Sets ({sets.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => setActiveTab('minifigs')}>
+        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); }}>
           🦸 Minifigures ({minifigs.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => setActiveTab('wishlist')}>
+        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); }}>
           ⭐ Wishlist ({wishlist.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
+        <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => { setActiveTab('sales'); setSortField('sale_date'); }}>
           💰 Sales Log ({sales.length})
         </button>
       </nav>
@@ -475,10 +537,23 @@ function App() {
             <div className="table-responsive">
               <table className="inventory-table">
                 <thead>
-                  <tr><th>Image</th><th>Set #</th><th>Name</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Purchased</th><th>Store</th><th>Notes</th><th>Actions</th></tr>
+                  <tr>
+                    <th>Image</th>
+                    <th onClick={() => handleSort('set_number')} style={{ cursor: 'pointer' }}>Set #{renderSortArrow('set_number')}</th>
+                    <th onClick={() => handleSort('set_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('set_name')}</th>
+                    <th onClick={() => handleSort('quantity')} style={{ cursor: 'pointer' }}>Qty{renderSortArrow('quantity')}</th>
+                    <th onClick={() => handleSort('condition')} style={{ cursor: 'pointer' }}>Cond.{renderSortArrow('condition')}</th>
+                    <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
+                    <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
+                    <th onClick={() => handleSort('new_shelf')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('new_shelf')}</th>
+                    <th onClick={() => handleSort('purchase_dt')} style={{ cursor: 'pointer' }}>Purchased{renderSortArrow('purchase_dt')}</th>
+                    <th onClick={() => handleSort('store')} style={{ cursor: 'pointer' }}>Store{renderSortArrow('store')}</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {filteredSets.map((item) => {
+                  {sortedSets.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.set_number);
                     const isUsed = item.condition && item.condition.toLowerCase() === 'used';
                     const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
@@ -532,10 +607,22 @@ function App() {
             <div className="table-responsive">
               <table className="inventory-table">
                 <thead>
-                  <tr><th>Image</th><th>Fig #</th><th>Name</th><th>Status</th><th>Qty</th><th>Cond.</th><th>Cost</th><th>Market Value</th><th>Shelf</th><th>Notes</th><th>Actions</th></tr>
+                  <tr>
+                    <th>Image</th>
+                    <th onClick={() => handleSort('fig_number')} style={{ cursor: 'pointer' }}>Fig #{renderSortArrow('fig_number')}</th>
+                    <th onClick={() => handleSort('fig_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('fig_name')}</th>
+                    <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>Status{renderSortArrow('status')}</th>
+                    <th onClick={() => handleSort('quantity')} style={{ cursor: 'pointer' }}>Qty{renderSortArrow('quantity')}</th>
+                    <th onClick={() => handleSort('condition')} style={{ cursor: 'pointer' }}>Cond.{renderSortArrow('condition')}</th>
+                    <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
+                    <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
+                    <th onClick={() => handleSort('shelf_location')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('shelf_location')}</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {filteredMinifigs.map((item) => {
+                  {sortedMinifigs.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.fig_number, true);
                     const isUsed = item.condition && item.condition.toLowerCase() === 'used';
                     const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
@@ -587,10 +674,20 @@ function App() {
             <div className="table-responsive">
               <table className="inventory-table">
                 <thead>
-                  <tr><th>Image</th><th>Item #</th><th>Name</th><th>Type</th><th>Priority</th><th>Target Price</th><th>Market (New)</th><th>Notes</th><th>Actions</th></tr>
+                  <tr>
+                    <th>Image</th>
+                    <th onClick={() => handleSort('item_number')} style={{ cursor: 'pointer' }}>Item #{renderSortArrow('item_number')}</th>
+                    <th onClick={() => handleSort('item_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('item_name')}</th>
+                    <th onClick={() => handleSort('item_type')} style={{ cursor: 'pointer' }}>Type{renderSortArrow('item_type')}</th>
+                    <th onClick={() => handleSort('priority')} style={{ cursor: 'pointer' }}>Priority{renderSortArrow('priority')}</th>
+                    <th onClick={() => handleSort('target_price')} style={{ cursor: 'pointer' }}>Target Price{renderSortArrow('target_price')}</th>
+                    <th onClick={() => handleSort('market_price_new')} style={{ cursor: 'pointer' }}>Market (New){renderSortArrow('market_price_new')}</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {filteredWishlist.map((item) => {
+                  {sortedWishlist.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.item_number, item.item_type === 'MINIFIG');
                     return (
                       <tr key={item.id}>
@@ -630,10 +727,21 @@ function App() {
             <div className="table-responsive">
               <table className="inventory-table">
                 <thead>
-                  <tr><th>Date</th><th>Item #</th><th>Name</th><th>Platform</th><th>Gross Sale</th><th>Cost</th><th>Fees</th><th>Shipping</th><th>Net Profit</th><th>Actions</th></tr>
+                  <tr>
+                    <th onClick={() => handleSort('sale_date')} style={{ cursor: 'pointer' }}>Date{renderSortArrow('sale_date')}</th>
+                    <th onClick={() => handleSort('item_number')} style={{ cursor: 'pointer' }}>Item #{renderSortArrow('item_number')}</th>
+                    <th onClick={() => handleSort('item_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('item_name')}</th>
+                    <th onClick={() => handleSort('platform')} style={{ cursor: 'pointer' }}>Platform{renderSortArrow('platform')}</th>
+                    <th onClick={() => handleSort('sale_price')} style={{ cursor: 'pointer' }}>Gross Sale{renderSortArrow('sale_price')}</th>
+                    <th onClick={() => handleSort('cost_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('cost_price')}</th>
+                    <th onClick={() => handleSort('platform_fees')} style={{ cursor: 'pointer' }}>Fees{renderSortArrow('platform_fees')}</th>
+                    <th onClick={() => handleSort('shipping_cost')} style={{ cursor: 'pointer' }}>Shipping{renderSortArrow('shipping_cost')}</th>
+                    <th onClick={() => handleSort('net_profit')} style={{ cursor: 'pointer' }}>Net Profit{renderSortArrow('net_profit')}</th>
+                    <th>Actions</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {filteredSales.map((item) => (
+                  {sortedSales.map((item) => (
                     <tr key={item.id}>
                       <td>{item.sale_date || '-'}</td>
                       <td><strong>{item.item_number}</strong></td>
@@ -688,140 +796,11 @@ function App() {
             )}
 
             <div className="modal-actions" style={{ marginTop: '20px' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => { setIsScanModalOpen(false); setPreviewImage(null); }}>Cancel</button>
-              <button 
-                type="button" 
-                className="btn btn-primary" 
-                disabled={!previewImage || isAnalyzing} 
-                onClick={handleAnalyzePhoto}
-              >
-                {isAnalyzing ? '⚡ Analyzing Image...' : '🔍 Identify Figure'}
+              <button className="btn btn-secondary" onClick={() => { setIsScanModalOpen(false); setPreviewImage(null); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAnalyzePhoto} disabled={!previewImage || isAnalyzing}>
+                {isAnalyzing ? 'Analyzing Photo...' : 'Identify Minifigure'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add / Edit Set Modal */}
-      {isModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <h2>{editingSet ? 'Edit Set' : 'Add New Set'}</h2>
-            <form onSubmit={handleFormSubmit}>
-              <div className="form-group"><label>Set Number</label><input type="text" required value={formData.set_number} onChange={(e) => setFormData({...formData, set_number: e.target.value})}/></div>
-              <div className="form-group"><label>Set Name</label><input type="text" required value={formData.set_name} onChange={(e) => setFormData({...formData, set_name: e.target.value})}/></div>
-              <div className="form-row">
-                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 1})}/></div>
-                <div className="form-group"><label>Condition</label><select value={formData.condition} onChange={(e) => setFormData({...formData, condition: e.target.value})}><option value="New">New</option><option value="Used">Used</option></select></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Purchase Price ($)</label><input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0.0})}/></div>
-                <div className="form-group"><label>Purchase Date</label><input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})}/></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Store Purchased</label><input type="text" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})}/></div>
-                <div className="form-group"><label>Shelf Location</label><input type="text" value={formData.new_shelf} onChange={(e) => setFormData({...formData, new_shelf: e.target.value})}/></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Polybag?</label><select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}><option value="No">No</option><option value="Yes">Yes</option></select></div>
-              </div>
-              <div className="form-group"><label>Item Notes</label><textarea rows="2" value={formData.item_notes} onChange={(e) => setFormData({...formData, item_notes: e.target.value})}/></div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Set</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add / Edit Minifig Modal */}
-      {isFigModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <h2>{editingFig ? 'Edit Minifigure' : 'Add New Minifigure'}</h2>
-            <form onSubmit={handleFigFormSubmit}>
-              <div className="form-group"><label>Fig Number (e.g. sw0001a)</label><input type="text" required value={figFormData.fig_number} onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})}/></div>
-              <div className="form-group"><label>Minifigure Name</label><input type="text" required value={figFormData.fig_name} onChange={(e) => setFigFormData({...figFormData, fig_name: e.target.value})}/></div>
-              <div className="form-row">
-                <div className="form-group"><label>Status</label>
-                  <select value={figFormData.status} onChange={(e) => setFigFormData({...figFormData, status: e.target.value})}>
-                    <option value="In Collection">In Collection</option>
-                    <option value="For Sale">For Sale</option>
-                    <option value="Draft / Unsorted">Draft / Unsorted</option>
-                  </select>
-                </div>
-                <div className="form-group"><label>Condition</label><select value={figFormData.condition} onChange={(e) => setFigFormData({...figFormData, condition: e.target.value})}><option value="New">New</option><option value="Used">Used</option></select></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Quantity</label><input type="number" min="1" value={figFormData.quantity} onChange={(e) => setFigFormData({...figFormData, quantity: parseInt(e.target.value) || 1})}/></div>
-                <div className="form-group"><label>Purchase Price ($)</label><input type="number" step="0.01" value={figFormData.purchase_price} onChange={(e) => setFigFormData({...figFormData, purchase_price: parseFloat(e.target.value) || 0.0})}/></div>
-              </div>
-              <div className="form-group"><label>Shelf / Storage Bin</label><input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})}/></div>
-              <div className="form-group"><label>Notes</label><textarea rows="2" value={figFormData.notes} onChange={(e) => setFigFormData({...figFormData, notes: e.target.value})}/></div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsFigModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Minifigure</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add / Edit Wishlist Modal */}
-      {isWishModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <h2>{editingWish ? 'Edit Wishlist Item' : 'Add to Wishlist'}</h2>
-            <form onSubmit={handleWishFormSubmit}>
-              <div className="form-row">
-                <div className="form-group"><label>Item Number</label><input type="text" required value={wishFormData.item_number} onChange={(e) => setWishFormData({...wishFormData, item_number: e.target.value})}/></div>
-                <div className="form-group"><label>Item Type</label><select value={wishFormData.item_type} onChange={(e) => setWishFormData({...wishFormData, item_type: e.target.value})}><option value="SET">Set</option><option value="MINIFIG">Minifigure</option></select></div>
-              </div>
-              <div className="form-group"><label>Item Name</label><input type="text" required value={wishFormData.item_name} onChange={(e) => setWishFormData({...wishFormData, item_name: e.target.value})}/></div>
-              <div className="form-row">
-                <div className="form-group"><label>Target Price ($)</label><input type="number" step="0.01" value={wishFormData.target_price} onChange={(e) => setWishFormData({...wishFormData, target_price: parseFloat(e.target.value) || 0.0})}/></div>
-                <div className="form-group"><label>Priority</label><select value={wishFormData.priority} onChange={(e) => setWishFormData({...wishFormData, priority: e.target.value})}><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></div>
-              </div>
-              <div className="form-group"><label>Notes / Deal Criteria</label><textarea rows="2" value={wishFormData.notes} onChange={(e) => setWishFormData({...wishFormData, notes: e.target.value})}/></div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsWishModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save to Wishlist</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add / Edit Sale Modal */}
-      {isSaleModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <h2>{editingSale ? 'Edit Sale Entry' : 'Log New Sale'}</h2>
-            <form onSubmit={handleSaleFormSubmit}>
-              <div className="form-row">
-                <div className="form-group"><label>Item Number</label><input type="text" required value={saleFormData.item_number} onChange={(e) => setSaleFormData({...saleFormData, item_number: e.target.value})}/></div>
-                <div className="form-group"><label>Item Type</label><select value={saleFormData.item_type} onChange={(e) => setSaleFormData({...saleFormData, item_type: e.target.value})}><option value="SET">Set</option><option value="MINIFIG">Minifigure</option></select></div>
-              </div>
-              <div className="form-group"><label>Item Name</label><input type="text" required value={saleFormData.item_name} onChange={(e) => setSaleFormData({...saleFormData, item_name: e.target.value})}/></div>
-              <div className="form-row">
-                <div className="form-group"><label>Sale Date</label><input type="date" value={saleFormData.sale_date} onChange={(e) => setSaleFormData({...saleFormData, sale_date: e.target.value})}/></div>
-                <div className="form-group"><label>Platform</label><select value={saleFormData.platform} onChange={(e) => setSaleFormData({...saleFormData, platform: e.target.value})}><option value="eBay">eBay</option><option value="BrickLink">BrickLink</option><option value="Mercari">Mercari</option><option value="Local">Local/Cash</option><option value="Other">Other</option></select></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Gross Sale Price ($)</label><input type="number" step="0.01" value={saleFormData.sale_price} onChange={(e) => setSaleFormData({...saleFormData, sale_price: parseFloat(e.target.value) || 0.0})}/></div>
-                <div className="form-group"><label>Item Cost ($)</label><input type="number" step="0.01" value={saleFormData.cost_price} onChange={(e) => setSaleFormData({...saleFormData, cost_price: parseFloat(e.target.value) || 0.0})}/></div>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Platform Fees ($)</label><input type="number" step="0.01" value={saleFormData.platform_fees} onChange={(e) => setSaleFormData({...saleFormData, platform_fees: parseFloat(e.target.value) || 0.0})}/></div>
-                <div className="form-group"><label>Shipping Cost ($)</label><input type="number" step="0.01" value={saleFormData.shipping_cost} onChange={(e) => setSaleFormData({...saleFormData, shipping_cost: parseFloat(e.target.value) || 0.0})}/></div>
-              </div>
-              <div className="form-group"><label>Notes</label><textarea rows="2" value={saleFormData.notes} onChange={(e) => setSaleFormData({...saleFormData, notes: e.target.value})}/></div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsSaleModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Sale</button>
-              </div>
-            </form>
           </div>
         </div>
       )}
