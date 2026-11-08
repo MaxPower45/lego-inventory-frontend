@@ -1,21 +1,15 @@
 {
-  "short_name": "LEGO Inventory",
-  "name": "LEGO Collection Manager & Portfolio",
+  "short_name": "LEGO Tracker",
+  "name": "LEGO Collection Tracker",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/808/808440.png",
+      "src": "icon.png",
       "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/808/808440.png",
-      "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512 192x192"
     }
   ],
-  "start_url": ".",
+  "start_url": "./",
   "background_color": "#ffffff",
-  "theme_color": "#0066cc",
-  "display": "standalone",
-  "orientation": "portrait-primary"
+  "theme_color": "#000000",
+  "display": "standalone"
 }
