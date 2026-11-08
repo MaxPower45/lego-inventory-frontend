@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lego-tracker-v2';
+const CACHE_NAME = 'lego-tracker-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
