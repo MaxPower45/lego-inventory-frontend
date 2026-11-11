@@ -63,11 +63,9 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
-  // Column Sort States
   const [sortField, setSortField] = useState('set_number');
   const [sortOrder, setSortOrder] = useState('asc');
 
-  // Modals State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [formData, setFormData] = useState({
@@ -95,7 +93,6 @@ function App() {
     sale_price: 0.0, cost_price: 0.0, platform_fees: 0.0, shipping_cost: 0.0, platform: 'eBay', notes: ''
   });
 
-  // AI Identification Camera Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -163,7 +160,6 @@ function App() {
     }
   };
 
-  // --- SET HANDLERS ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -201,7 +197,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- MINIFIG HANDLERS ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
@@ -254,7 +249,6 @@ function App() {
     setIsSaleModalOpen(true);
   };
 
-  // --- AI PHOTO SCAN HANDLERS ---
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -299,7 +293,6 @@ function App() {
     }
   };
 
-  // --- WISHLIST HANDLERS ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -334,7 +327,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- SALES HANDLERS ---
   const handleOpenSaleModal = (saleItem = null) => {
     if (saleItem) {
       setEditingSale(saleItem);
@@ -372,7 +364,6 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
-  // --- GENERIC SORTING HELPER ---
   const sortData = (data, getValFunc) => {
     return [...data].sort((a, b) => {
       let aVal = getValFunc(a, sortField);
@@ -394,7 +385,6 @@ function App() {
     });
   };
 
-  // --- FILTER & SORT SETS ---
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
@@ -422,7 +412,6 @@ function App() {
     return acc + (price * (s.quantity || 1));
   }, 0);
 
-  // --- FILTER & SORT MINIFIGS ---
   const filteredMinifigs = minifigs.filter(f => {
     const q = minifigSearchQuery.toLowerCase();
     const matchesSearch = f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
@@ -448,24 +437,20 @@ function App() {
     return acc + (price * (f.quantity || 1));
   }, 0);
 
-  // --- FILTER & SORT WISHLIST ---
   const filteredWishlist = wishlist.filter(w => {
     const q = wishlistSearchQuery.toLowerCase();
     return w.item_name?.toLowerCase().includes(q) || w.item_number?.toLowerCase().includes(q) || w.notes?.toLowerCase().includes(q);
   });
 
   const sortedWishlist = sortData(filteredWishlist, (item, field) => item[field]);
-
   const totalWishTarget = filteredWishlist.reduce((acc, w) => acc + (w.target_price || 0), 0);
 
-  // --- FILTER & SORT SALES ---
   const filteredSales = sales.filter(s => {
     const q = salesSearchQuery.toLowerCase();
     return s.item_name?.toLowerCase().includes(q) || s.item_number?.toLowerCase().includes(q) || s.platform?.toLowerCase().includes(q) || s.notes?.toLowerCase().includes(q);
   });
 
   const sortedSales = sortData(filteredSales, (item, field) => item[field]);
-
   const totalRevenue = filteredSales.reduce((acc, s) => acc + (s.sale_price || 0), 0);
   const totalNetProfit = filteredSales.reduce((acc, s) => acc + (s.net_profit || 0), 0);
   const totalSalesCost = filteredSales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
@@ -560,9 +545,16 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.set_number}</strong></td><td>{item.set_name}</td><td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
-                        <td>${(item.purchase_price || 0).toFixed(2)}</td><td>${activeMarketPrice.toFixed(2)}</td><td>{item.new_shelf || '-'}</td>
-                        <td>{item.purchase_dt || '-'}</td><td>{item.store || '-'}</td><td>{item.item_notes || '-'}</td>
+                        <td><strong>{item.set_number}</strong></td>
+                        <td>{item.set_name}</td>
+                        <td>{item.quantity}</td>
+                        <td>{item.condition || 'N/A'}</td>
+                        <td>${(item.purchase_price || 0).toFixed(2)}</td>
+                        <td>${activeMarketPrice.toFixed(2)}</td>
+                        <td>{item.new_shelf || '-'}</td>
+                        <td>{item.purchase_dt || '-'}</td>
+                        <td>{item.store || '-'}</td>
+                        <td>{item.item_notes || '-'}</td>
                         <td className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
@@ -638,8 +630,12 @@ function App() {
                             {status}
                           </span>
                         </td>
-                        <td>{item.quantity}</td><td>{item.condition || 'N/A'}</td>
-                        <td>${(item.purchase_price || 0).toFixed(2)}</td><td>${activeMarketPrice.toFixed(2)}</td><td>{item.shelf_location || '-'}</td><td>{item.notes || '-'}</td>
+                        <td>{item.quantity}</td>
+                        <td>{item.condition || 'N/A'}</td>
+                        <td>${(item.purchase_price || 0).toFixed(2)}</td>
+                        <td>${activeMarketPrice.toFixed(2)}</td>
+                        <td>{item.shelf_location || '-'}</td>
+                        <td>{item.notes || '-'}</td>
                         <td className="actions-cell">
                           {isForSale && (
                             <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
@@ -692,8 +688,13 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.item_number}</strong></td><td>{item.item_name}</td><td>{item.item_type}</td><td>{item.priority}</td>
-                        <td>${(item.target_price || 0).toFixed(2)}</td><td>${(item.market_price_new || 0).toFixed(2)}</td><td>{item.notes || '-'}</td>
+                        <td><strong>{item.item_number}</strong></td>
+                        <td>{item.item_name}</td>
+                        <td>{item.item_type}</td>
+                        <td>{item.priority}</td>
+                        <td>${(item.target_price || 0).toFixed(2)}</td>
+                        <td>${(item.market_price_new || 0).toFixed(2)}</td>
+                        <td>{item.notes || '-'}</td>
                         <td className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenWishModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" onClick={() => handleDeleteWish(item.id)}>🗑️</button>
@@ -712,15 +713,14 @@ function App() {
       {activeTab === 'sales' && (
         <>
           <section className="stats-row">
-            <div className="stat-card"><h3>Total Sales</h3><p>{filteredSales.length}</p></div>
             <div className="stat-card"><h3>Total Revenue</h3><p>${totalRevenue.toFixed(2)}</p></div>
-            <div className="stat-card"><h3>Net Profit</h3><p style={{ color: totalNetProfit >= 0 ? '#28a745' : '#dc3545' }}>${totalNetProfit.toFixed(2)}</p></div>
-            <div className="stat-card"><h3>ROI</h3><p>{overallROI}%</p></div>
+            <div className="stat-card"><h3>Net Profit</h3><p>${totalNetProfit.toFixed(2)}</p></div>
+            <div className="stat-card"><h3>Overall ROI</h3><p>{overallROI}%</p></div>
           </section>
 
           <section className="controls-row">
-            <input type="text" placeholder="Search sales..." value={salesSearchQuery} onChange={(e) => setSalesSearchQuery(e.target.value)} className="search-input" />
-            <button className="btn btn-success" onClick={() => handleOpenSaleModal()}>+ Add Sale</button>
+            <input type="text" placeholder="Search sales log..." value={salesSearchQuery} onChange={(e) => setSalesSearchQuery(e.target.value)} className="search-input" />
+            <button className="btn btn-success" onClick={() => handleOpenSaleModal()}>+ Log Sale</button>
           </section>
 
           {loadingSales ? <div className="loading-spinner">Loading sales log...</div> : (
@@ -728,32 +728,30 @@ function App() {
               <table className="inventory-table">
                 <thead>
                   <tr>
-                    <th onClick={() => handleSort('sale_date')} style={{ cursor: 'pointer' }}>Date{renderSortArrow('sale_date')}</th>
-                    <th onClick={() => handleSort('item_number')} style={{ cursor: 'pointer' }}>Item #{renderSortArrow('item_number')}</th>
+                    <th>Item #</th>
                     <th onClick={() => handleSort('item_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('item_name')}</th>
-                    <th onClick={() => handleSort('platform')} style={{ cursor: 'pointer' }}>Platform{renderSortArrow('platform')}</th>
-                    <th onClick={() => handleSort('sale_price')} style={{ cursor: 'pointer' }}>Gross Sale{renderSortArrow('sale_price')}</th>
+                    <th onClick={() => handleSort('sale_date')} style={{ cursor: 'pointer' }}>Date{renderSortArrow('sale_date')}</th>
+                    <th onClick={() => handleSort('sale_price')} style={{ cursor: 'pointer' }}>Sale Price{renderSortArrow('sale_price')}</th>
                     <th onClick={() => handleSort('cost_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('cost_price')}</th>
-                    <th onClick={() => handleSort('platform_fees')} style={{ cursor: 'pointer' }}>Fees{renderSortArrow('platform_fees')}</th>
-                    <th onClick={() => handleSort('shipping_cost')} style={{ cursor: 'pointer' }}>Shipping{renderSortArrow('shipping_cost')}</th>
                     <th onClick={() => handleSort('net_profit')} style={{ cursor: 'pointer' }}>Net Profit{renderSortArrow('net_profit')}</th>
+                    <th onClick={() => handleSort('platform')} style={{ cursor: 'pointer' }}>Platform{renderSortArrow('platform')}</th>
+                    <th>Notes</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedSales.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.sale_date || '-'}</td>
                       <td><strong>{item.item_number}</strong></td>
                       <td>{item.item_name}</td>
-                      <td>{item.platform || '-'}</td>
+                      <td>{item.sale_date}</td>
                       <td>${(item.sale_price || 0).toFixed(2)}</td>
                       <td>${(item.cost_price || 0).toFixed(2)}</td>
-                      <td>${(item.platform_fees || 0).toFixed(2)}</td>
-                      <td>${(item.shipping_cost || 0).toFixed(2)}</td>
-                      <td style={{ color: (item.net_profit || 0) >= 0 ? '#28a745' : '#dc3545', fontWeight: 'bold' }}>
+                      <td className={item.net_profit >= 0 ? 'text-success' : 'text-danger'}>
                         ${(item.net_profit || 0).toFixed(2)}
                       </td>
+                      <td>{item.platform}</td>
+                      <td>{item.notes || '-'}</td>
                       <td className="actions-cell">
                         <button className="btn-icon" onClick={() => handleOpenSaleModal(item)}>✏️</button>
                         <button className="btn-icon text-danger" onClick={() => handleDeleteSale(item.id)}>🗑️</button>
@@ -767,43 +765,269 @@ function App() {
         </>
       )}
 
-      {/* Camera / AI Identification Modal */}
+      {/* --- ADD / EDIT SET MODAL --- */}
+      {isModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>{editingSet ? 'Edit Set' : 'Add New Set'}</h2>
+            <form onSubmit={handleFormSubmit}>
+              <div className="form-group">
+                <label>Set Number *</label>
+                <input type="text" required value={formData.set_number} onChange={(e) => setFormData({...formData, set_number: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Set Name *</label>
+                <input type="text" required value={formData.set_name} onChange={(e) => setFormData({...formData, set_name: e.target.value})} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Quantity</label>
+                  <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: parseInt(e.target.value) || 1})} />
+                </div>
+                <div className="form-group">
+                  <label>Condition</label>
+                  <select value={formData.condition} onChange={(e) => setFormData({...formData, condition: e.target.value})}>
+                    <option value="New">New</option>
+                    <option value="Used">Used</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Purchase Price ($)</label>
+                  <input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} />
+                </div>
+                <div className="form-group">
+                  <label>Purchase Date</label>
+                  <input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Shelf Location</label>
+                  <input type="text" value={formData.new_shelf} onChange={(e) => setFormData({...formData, new_shelf: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label>Store / Source</label>
+                  <input type="text" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Polybag?</label>
+                <select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}>
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea value={formData.item_notes} onChange={(e) => setFormData({...formData, item_notes: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-success">Save Set</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- ADD / EDIT MINIFIG MODAL --- */}
+      {isFigModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>{editingFig ? 'Edit Minifigure' : 'Add Minifigure'}</h2>
+            <form onSubmit={handleFigFormSubmit}>
+              <div className="form-group">
+                <label>Fig Number *</label>
+                <input type="text" required value={figFormData.fig_number} onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Fig Name *</label>
+                <input type="text" required value={figFormData.fig_name} onChange={(e) => setFigFormData({...figFormData, fig_name: e.target.value})} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Quantity</label>
+                  <input type="number" min="1" value={figFormData.quantity} onChange={(e) => setFigFormData({...figFormData, quantity: parseInt(e.target.value) || 1})} />
+                </div>
+                <div className="form-group">
+                  <label>Status</label>
+                  <select value={figFormData.status} onChange={(e) => setFigFormData({...figFormData, status: e.target.value})}>
+                    <option value="In Collection">In Collection</option>
+                    <option value="For Sale">For Sale</option>
+                    <option value="Draft / Unsorted">Draft / Unsorted</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Condition</label>
+                  <select value={figFormData.condition} onChange={(e) => setFigFormData({...figFormData, condition: e.target.value})}>
+                    <option value="New">New</option>
+                    <option value="Used">Used</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Purchase Price ($)</label>
+                  <input type="number" step="0.01" value={figFormData.purchase_price} onChange={(e) => setFigFormData({...figFormData, purchase_price: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Shelf Location</label>
+                <input type="text" value={figFormData.shelf_location} onChange={(e) => setFigFormData({...figFormData, shelf_location: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea value={figFormData.notes} onChange={(e) => setFigFormData({...figFormData, notes: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsFigModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-success">Save Minifig</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- WISHLIST MODAL --- */}
+      {isWishModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>{editingWish ? 'Edit Wishlist Item' : 'Add to Wishlist'}</h2>
+            <form onSubmit={handleWishFormSubmit}>
+              <div className="form-group">
+                <label>Item Number *</label>
+                <input type="text" required value={wishFormData.item_number} onChange={(e) => setWishFormData({...wishFormData, item_number: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Item Name *</label>
+                <input type="text" required value={wishFormData.item_name} onChange={(e) => setWishFormData({...wishFormData, item_name: e.target.value})} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Type</label>
+                  <select value={wishFormData.item_type} onChange={(e) => setWishFormData({...wishFormData, item_type: e.target.value})}>
+                    <option value="SET">SET</option>
+                    <option value="MINIFIG">MINIFIG</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Priority</label>
+                  <select value={wishFormData.priority} onChange={(e) => setWishFormData({...wishFormData, priority: e.target.value})}>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Target Price ($)</label>
+                <input type="number" step="0.01" value={wishFormData.target_price} onChange={(e) => setWishFormData({...wishFormData, target_price: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea value={wishFormData.notes} onChange={(e) => setWishFormData({...wishFormData, notes: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsWishModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-success">Save Wishlist Item</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- SALE MODAL --- */}
+      {isSaleModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>{editingSale ? 'Edit Sale Entry' : 'Log New Sale'}</h2>
+            <form onSubmit={handleSaleFormSubmit}>
+              <div className="form-group">
+                <label>Item Number *</label>
+                <input type="text" required value={saleFormData.item_number} onChange={(e) => setSaleFormData({...saleFormData, item_number: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Item Name *</label>
+                <input type="text" required value={saleFormData.item_name} onChange={(e) => setSaleFormData({...saleFormData, item_name: e.target.value})} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Sale Date</label>
+                  <input type="date" required value={saleFormData.sale_date} onChange={(e) => setSaleFormData({...saleFormData, sale_date: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label>Platform</label>
+                  <select value={saleFormData.platform} onChange={(e) => setSaleFormData({...saleFormData, platform: e.target.value})}>
+                    <option value="eBay">eBay</option>
+                    <option value="BrickLink">BrickLink</option>
+                    <option value="Local / Cash">Local / Cash</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Sale Price ($)</label>
+                  <input type="number" step="0.01" value={saleFormData.sale_price} onChange={(e) => setSaleFormData({...saleFormData, sale_price: parseFloat(e.target.value) || 0})} />
+                </div>
+                <div className="form-group">
+                  <label>Original Cost ($)</label>
+                  <input type="number" step="0.01" value={saleFormData.cost_price} onChange={(e) => setSaleFormData({...saleFormData, cost_price: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Platform Fees ($)</label>
+                  <input type="number" step="0.01" value={saleFormData.platform_fees} onChange={(e) => setSaleFormData({...saleFormData, platform_fees: parseFloat(e.target.value) || 0})} />
+                </div>
+                <div className="form-group">
+                  <label>Shipping Cost ($)</label>
+                  <input type="number" step="0.01" value={saleFormData.shipping_cost} onChange={(e) => setSaleFormData({...saleFormData, shipping_cost: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea value={saleFormData.notes} onChange={(e) => setSaleFormData({...saleFormData, notes: e.target.value})} />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIsSaleModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-success">Save Sale</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- AI PHOTO SCAN MODAL --- */}
       {isScanModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content text-center">
-            <h2>📷 Snap & Identify Minifigure</h2>
-            <p>Take or select a photo of your loose minifigure to identify it instantly.</p>
-            
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              ref={fileInputRef} 
-              style={{ display: 'none' }} 
-              onChange={handleFileChange} 
-            />
-
-            {!previewImage ? (
-              <div className="upload-placeholder" onClick={() => fileInputRef.current && fileInputRef.current.click()}>
-                <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📸</div>
-                <p><strong>Tap here to open Camera / Upload Photo</strong></p>
-              </div>
-            ) : (
-              <div className="preview-container">
-                <img src={previewImage} alt="Minifig preview" className="scan-preview-img" />
-                <button className="btn btn-secondary btn-sm" style={{ marginTop: '10px' }} onClick={() => setPreviewImage(null)}>Retake Photo</button>
-              </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: '20px' }}>
-              <button className="btn btn-secondary" onClick={() => { setIsScanModalOpen(false); setPreviewImage(null); }}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleAnalyzePhoto} disabled={!previewImage || isAnalyzing}>
-                {isAnalyzing ? 'Analyzing Photo...' : 'Identify Minifigure'}
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>📷 AI Minifig Identifier</h2>
+            <div className="scan-body">
+              <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} />
+              {!previewImage ? (
+                <div className="upload-box" onClick={() => fileInputRef.current.click()}>
+                  <p>Tap here to take a photo or upload an image of a minifig</p>
+                </div>
+              ) : (
+                <div className="image-preview-container">
+                  <img src={previewImage} alt="Preview" className="scan-preview" />
+                  <button className="btn btn-secondary btn-sm" onClick={() => setPreviewImage(null)}>Retake Photo</button>
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setIsScanModalOpen(false); setPreviewImage(null); }}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={!previewImage || isAnalyzing} onClick={handleAnalyzePhoto}>
+                {isAnalyzing ? 'Analyzing with AI...' : 'Identify Minifig'}
               </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
