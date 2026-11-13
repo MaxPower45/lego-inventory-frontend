@@ -68,6 +68,7 @@ function App() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
+  const [isLookingUpSet, setIsLookingUpSet] = useState(false);
   const [formData, setFormData] = useState({
     set_number: '', set_name: '', quantity: 1, condition: 'New',
     purchase_price: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
@@ -157,6 +158,27 @@ function App() {
       fetchWishlist();
     } catch (err) {
       setSyncStatus('Error syncing with BrickLink.');
+    }
+  };
+
+  const handleLookupSet = async () => {
+    const cleanNum = formData.set_number.trim();
+    if (!cleanNum) return;
+    setIsLookingUpSet(true);
+    try {
+      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.name) {
+          const txt = document.createElement("textarea");
+          txt.innerHTML = data.name;
+          setFormData(prev => ({ ...prev, set_name: txt.value }));
+        }
+      }
+    } catch (err) {
+      console.error("BrickLink lookup error:", err);
+    } finally {
+      setIsLookingUpSet(false);
     }
   };
 
@@ -773,7 +795,24 @@ function App() {
             <form onSubmit={handleFormSubmit}>
               <div className="form-group">
                 <label>Set Number *</label>
-                <input type="text" required value={formData.set_number} onChange={(e) => setFormData({...formData, set_number: e.target.value})} />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="e.g. 75192"
+                    value={formData.set_number} 
+                    onChange={(e) => setFormData({...formData, set_number: e.target.value})} 
+                    onBlur={handleLookupSet}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={handleLookupSet}
+                    disabled={isLookingUpSet || !formData.set_number}
+                  >
+                    {isLookingUpSet ? '...' : '🔍 Lookup'}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Set Name *</label>
