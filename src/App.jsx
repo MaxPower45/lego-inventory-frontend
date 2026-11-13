@@ -340,13 +340,15 @@ function App() {
 
       setEditingFig(null);
       setFigFormData({
-        fig_number: data.fig_number || 'sw0001a',
-        fig_name: data.fig_name || 'Darth Vader (Classic)',
+        fig_number: data.fig_number || '',
+        fig_name: data.fig_name || '',
         quantity: 1,
         condition: 'New',
         purchase_price: 0.0,
-        shelf_location: 'Bin 1',
-        notes: `Identified via AI Vision (${data.confidence || '95%'} confidence)`,
+        shelf_location: '',
+        notes: data.fig_number
+          ? `Identified via Brickognize (${data.confidence} confidence)`
+          : 'No confident match found — please enter manually',
         status: 'In Collection'
       });
       setIsFigModalOpen(true);
