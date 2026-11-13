@@ -381,3 +381,34 @@ body {
   overflow-y: auto;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25);
 }
+/* --- AI Minifig Scan Modal Preview --- */
+.scan-body {
+  margin: 16px 0;
+  text-align: center;
+}
+
+.upload-box {
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 32px 16px;
+  cursor: pointer;
+  background-color: #f8fafc;
+  color: #475569;
+}
+
+.image-preview-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.scan-preview {
+  max-width: 100%;
+  max-height: 260px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
