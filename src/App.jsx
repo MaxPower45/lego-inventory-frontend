@@ -76,6 +76,7 @@ function App() {
 
   const [isFigModalOpen, setIsFigModalOpen] = useState(false);
   const [editingFig, setEditingFig] = useState(null);
+  const [isLookingUpFig, setIsLookingUpFig] = useState(false);
   const [figFormData, setFigFormData] = useState({
     fig_number: '', fig_name: '', quantity: 1, condition: 'New',
     purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
@@ -83,6 +84,7 @@ function App() {
 
   const [isWishModalOpen, setIsWishModalOpen] = useState(false);
   const [editingWish, setEditingWish] = useState(null);
+  const [isLookingUpWish, setIsLookingUpWish] = useState(false);
   const [wishFormData, setWishFormData] = useState({
     item_number: '', item_name: '', item_type: 'SET', target_price: 0.0, priority: 'Medium', notes: ''
   });
@@ -161,6 +163,12 @@ function App() {
     }
   };
 
+  const decodeHtml = (str) => {
+    const txt = document.createElement("textarea");
+    txt.innerHTML = str;
+    return txt.value;
+  };
+
   const handleLookupSet = async () => {
     const cleanNum = formData.set_number.trim();
     if (!cleanNum) return;
@@ -170,15 +178,51 @@ function App() {
       if (res.ok) {
         const data = await res.json();
         if (data.name) {
-          const txt = document.createElement("textarea");
-          txt.innerHTML = data.name;
-          setFormData(prev => ({ ...prev, set_name: txt.value }));
+          setFormData(prev => ({ ...prev, set_name: decodeHtml(data.name) }));
         }
       }
     } catch (err) {
-      console.error("BrickLink lookup error:", err);
+      console.error("BrickLink set lookup error:", err);
     } finally {
       setIsLookingUpSet(false);
+    }
+  };
+
+  const handleLookupFig = async () => {
+    const cleanNum = figFormData.fig_number.trim();
+    if (!cleanNum) return;
+    setIsLookingUpFig(true);
+    try {
+      const res = await fetch(`${API_BASE}/lookup/MINIFIG/${encodeURIComponent(cleanNum)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.name) {
+          setFigFormData(prev => ({ ...prev, fig_name: decodeHtml(data.name) }));
+        }
+      }
+    } catch (err) {
+      console.error("BrickLink minifig lookup error:", err);
+    } finally {
+      setIsLookingUpFig(false);
+    }
+  };
+
+  const handleLookupWish = async () => {
+    const cleanNum = wishFormData.item_number.trim();
+    if (!cleanNum) return;
+    setIsLookingUpWish(true);
+    try {
+      const res = await fetch(`${API_BASE}/lookup/${wishFormData.item_type}/${encodeURIComponent(cleanNum)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.name) {
+          setWishFormData(prev => ({ ...prev, item_name: decodeHtml(data.name) }));
+        }
+      }
+    } catch (err) {
+      console.error("BrickLink wishlist lookup error:", err);
+    } finally {
+      setIsLookingUpWish(false);
     }
   };
 
@@ -879,7 +923,24 @@ function App() {
             <form onSubmit={handleFigFormSubmit}>
               <div className="form-group">
                 <label>Fig Number *</label>
-                <input type="text" required value={figFormData.fig_number} onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})} />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="e.g. sw0001a"
+                    value={figFormData.fig_number} 
+                    onChange={(e) => setFigFormData({...figFormData, fig_number: e.target.value})} 
+                    onBlur={handleLookupFig}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={handleLookupFig}
+                    disabled={isLookingUpFig || !figFormData.fig_number}
+                  >
+                    {isLookingUpFig ? '...' : '🔍 Lookup'}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Fig Name *</label>
@@ -937,7 +998,24 @@ function App() {
             <form onSubmit={handleWishFormSubmit}>
               <div className="form-group">
                 <label>Item Number *</label>
-                <input type="text" required value={wishFormData.item_number} onChange={(e) => setWishFormData({...wishFormData, item_number: e.target.value})} />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="e.g. 75192 or sw0001a"
+                    value={wishFormData.item_number} 
+                    onChange={(e) => setWishFormData({...wishFormData, item_number: e.target.value})} 
+                    onBlur={handleLookupWish}
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={handleLookupWish}
+                    disabled={isLookingUpWish || !wishFormData.item_number}
+                  >
+                    {isLookingUpWish ? '...' : '🔍 Lookup'}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Item Name *</label>
