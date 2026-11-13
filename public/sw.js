@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lego-tracker-v4';
+const CACHE_NAME = 'lego-tracker-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -31,9 +31,16 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Always check the network first so updates load immediately, fall back to cache only if offline
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
+    fetch(event.request)
+      .then((response) => {
+        const responseClone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseClone);
+        });
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
