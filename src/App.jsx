@@ -529,6 +529,25 @@ function App() {
     return sortOrder === 'asc' ? ' ▲' : ' ▼';
   };
 
+  const renderSortControl = (options) => (
+    <div className="filter-group">
+      <label>Sort:</label>
+      <select value={sortField} onChange={(e) => setSortField(e.target.value)}>
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="btn-icon"
+        title="Toggle Sort Direction"
+        onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+      >
+        {sortOrder === 'asc' ? '↑' : '↓'}
+      </button>
+    </div>
+  );
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -550,16 +569,16 @@ function App() {
       </header>
 
       <nav className="tab-bar">
-        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => { setActiveTab('sets'); setSortField('set_number'); }}>
+        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => { setActiveTab('sets'); setSortField('set_number'); setSortOrder('asc'); }}>
           📦 Sets ({sets.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); }}>
+        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); setSortOrder('asc'); }}>
           🦸 Minifigures ({minifigs.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); }}>
+        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); setSortOrder('asc'); }}>
           ⭐ Wishlist ({wishlist.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => { setActiveTab('sales'); setSortField('sale_date'); }}>
+        <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => { setActiveTab('sales'); setSortField('sale_date'); setSortOrder('desc'); }}>
           💰 Sales Log ({sales.length})
         </button>
       </nav>
@@ -583,6 +602,15 @@ function App() {
                 <option value="ALL">All</option><option value="YES">Polybags Only</option><option value="NO">Sets Only</option>
               </select>
             </div>
+            {renderSortControl([
+              { value: 'set_number', label: 'Set #' },
+              { value: 'set_name', label: 'Name' },
+              { value: 'market_price', label: 'Market Value' },
+              { value: 'purchase_price', label: 'Cost' },
+              { value: 'new_shelf', label: 'Shelf' },
+              { value: 'purchase_dt', label: 'Purchased' },
+              { value: 'quantity', label: 'Qty' }
+            ])}
             <button className="btn btn-success" onClick={() => handleOpenModal()}>+ Add Set</button>
           </section>
 
@@ -657,6 +685,15 @@ function App() {
                 <option value="Draft / Unsorted">Draft / Unsorted</option>
               </select>
             </div>
+            {renderSortControl([
+              { value: 'fig_number', label: 'Fig #' },
+              { value: 'fig_name', label: 'Name' },
+              { value: 'market_price', label: 'Market Value' },
+              { value: 'purchase_price', label: 'Cost' },
+              { value: 'status', label: 'Status' },
+              { value: 'shelf_location', label: 'Shelf' },
+              { value: 'quantity', label: 'Qty' }
+            ])}
             <div className="button-group">
               <button className="btn btn-primary" onClick={() => setIsScanModalOpen(true)}>📷 Snap & Identify</button>
               <button className="btn btn-success" onClick={() => handleOpenFigModal()}>+ Add Minifig</button>
@@ -731,6 +768,13 @@ function App() {
 
           <section className="controls-row">
             <input type="text" placeholder="Search wishlist items..." value={wishlistSearchQuery} onChange={(e) => setWishlistSearchQuery(e.target.value)} className="search-input" />
+            {renderSortControl([
+              { value: 'item_number', label: 'Item #' },
+              { value: 'item_name', label: 'Name' },
+              { value: 'priority', label: 'Priority' },
+              { value: 'target_price', label: 'Target Price' },
+              { value: 'market_price_new', label: 'Market Price' }
+            ])}
             <button className="btn btn-success" onClick={() => handleOpenWishModal()}>+ Add to Wishlist</button>
           </section>
 
@@ -788,6 +832,13 @@ function App() {
 
           <section className="controls-row">
             <input type="text" placeholder="Search sales log..." value={salesSearchQuery} onChange={(e) => setSalesSearchQuery(e.target.value)} className="search-input" />
+            {renderSortControl([
+              { value: 'sale_date', label: 'Sale Date' },
+              { value: 'item_name', label: 'Name' },
+              { value: 'sale_price', label: 'Sale Price' },
+              { value: 'net_profit', label: 'Net Profit' },
+              { value: 'platform', label: 'Platform' }
+            ])}
             <button className="btn btn-success" onClick={() => handleOpenSaleModal()}>+ Log Sale</button>
           </section>
 
