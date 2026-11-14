@@ -46,12 +46,14 @@ function App() {
   const [sets, setSets] = useState([]);
   const [loadingSets, setLoadingSets] = useState(true);
   const [filterPolybag, setFilterPolybag] = useState('ALL');
+  const [filterSetTheme, setFilterSetTheme] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [minifigs, setMinifigs] = useState([]);
   const [loadingMinifigs, setLoadingMinifigs] = useState(false);
   const [minifigSearchQuery, setMinifigSearchQuery] = useState('');
   const [minifigStatusFilter, setMinifigStatusFilter] = useState('ALL');
+  const [filterFigTheme, setFilterFigTheme] = useState('ALL');
 
   const [wishlist, setWishlist] = useState([]);
   const [loadingWishlist, setLoadingWishlist] = useState(false);
@@ -70,7 +72,7 @@ function App() {
   const [editingSet, setEditingSet] = useState(null);
   const [isLookingUpSet, setIsLookingUpSet] = useState(false);
   const [formData, setFormData] = useState({
-    set_number: '', set_name: '', quantity: 1, condition: 'New',
+    set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New',
     purchase_price: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
   });
 
@@ -78,7 +80,7 @@ function App() {
   const [editingFig, setEditingFig] = useState(null);
   const [isLookingUpFig, setIsLookingUpFig] = useState(false);
   const [figFormData, setFigFormData] = useState({
-    fig_number: '', fig_name: '', quantity: 1, condition: 'New',
+    fig_number: '', fig_name: '', theme: '', quantity: 1, condition: 'New',
     purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
   });
 
@@ -150,7 +152,7 @@ function App() {
   };
 
   const handleSync = async () => {
-    setSyncStatus('Syncing with BrickLink API...');
+    setSyncStatus('Syncing with BrickLink API (prices, images & themes)...');
     try {
       const res = await fetch(`${API_BASE}/sync-bricklink`, { method: 'POST' });
       const data = await res.json();
@@ -177,9 +179,11 @@ function App() {
       const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.name) {
-          setFormData(prev => ({ ...prev, set_name: decodeHtml(data.name) }));
-        }
+        setFormData(prev => ({
+          ...prev,
+          set_name: data.name ? decodeHtml(data.name) : prev.set_name,
+          theme: data.theme ? decodeHtml(data.theme) : prev.theme
+        }));
       }
     } catch (err) {
       console.error("BrickLink set lookup error:", err);
@@ -196,9 +200,11 @@ function App() {
       const res = await fetch(`${API_BASE}/lookup/MINIFIG/${encodeURIComponent(cleanNum)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.name) {
-          setFigFormData(prev => ({ ...prev, fig_name: decodeHtml(data.name) }));
-        }
+        setFigFormData(prev => ({
+          ...prev,
+          fig_name: data.name ? decodeHtml(data.name) : prev.fig_name,
+          theme: data.theme ? decodeHtml(data.theme) : prev.theme
+        }));
       }
     } catch (err) {
       console.error("BrickLink minifig lookup error:", err);
@@ -230,15 +236,15 @@ function App() {
     if (setItem) {
       setEditingSet(setItem);
       setFormData({
-        set_number: setItem.set_number || '', set_name: setItem.set_name || '', quantity: setItem.quantity || 1,
-        condition: setItem.condition || 'New', purchase_price: setItem.purchase_price || 0.0,
+        set_number: setItem.set_number || '', set_name: setItem.set_name || '', theme: setItem.theme || '',
+        quantity: setItem.quantity || 1, condition: setItem.condition || 'New', purchase_price: setItem.purchase_price || 0.0,
         purchase_dt: setItem.purchase_dt || '', new_shelf: setItem.new_shelf || '',
         item_notes: setItem.item_notes || '', store: setItem.store || '', polybag: setItem.polybag || 'No'
       });
     } else {
       setEditingSet(null);
       setFormData({
-        set_number: '', set_name: '', quantity: 1, condition: 'New', purchase_price: 0.0,
+        set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', purchase_price: 0.0,
         purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
       });
     }
@@ -267,14 +273,14 @@ function App() {
     if (figItem) {
       setEditingFig(figItem);
       setFigFormData({
-        fig_number: figItem.fig_number || '', fig_name: figItem.fig_name || '', quantity: figItem.quantity || 1,
-        condition: figItem.condition || 'New', purchase_price: figItem.purchase_price || 0.0,
+        fig_number: figItem.fig_number || '', fig_name: figItem.fig_name || '', theme: figItem.theme || '',
+        quantity: figItem.quantity || 1, condition: figItem.condition || 'New', purchase_price: figItem.purchase_price || 0.0,
         shelf_location: figItem.shelf_location || '', notes: figItem.notes || '', status: figItem.status || 'In Collection'
       });
     } else {
       setEditingFig(null);
       setFigFormData({
-        fig_number: '', fig_name: '', quantity: 1, condition: 'New', purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
+        fig_number: '', fig_name: '', theme: '', quantity: 1, condition: 'New', purchase_price: 0.0, shelf_location: '', notes: '', status: 'In Collection'
       });
     }
     setIsFigModalOpen(true);
@@ -342,6 +348,7 @@ function App() {
       setFigFormData({
         fig_number: data.fig_number || '',
         fig_name: data.fig_name || '',
+        theme: data.theme || '',
         quantity: 1,
         condition: 'New',
         purchase_price: 0.0,
@@ -453,15 +460,21 @@ function App() {
     });
   };
 
+  const availableSetThemes = Array.from(new Set(sets.map(s => s.theme).filter(Boolean))).sort();
+  const availableFigThemes = Array.from(new Set(minifigs.map(f => f.theme).filter(Boolean))).sort();
+
   const filteredSets = sets.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
                           s.set_number?.toLowerCase().includes(q) ||
+                          s.theme?.toLowerCase().includes(q) ||
                           s.store?.toLowerCase().includes(q) ||
                           s.item_notes?.toLowerCase().includes(q);
-    if (filterPolybag === 'YES') return matchesSearch && (s.polybag?.toLowerCase() === 'yes' || s.polybag?.toLowerCase() === 'true');
-    if (filterPolybag === 'NO') return matchesSearch && (!s.polybag || s.polybag?.toLowerCase() === 'no' || s.polybag?.toLowerCase() === 'false');
-    return matchesSearch;
+    if (!matchesSearch) return false;
+    if (filterSetTheme !== 'ALL' && (s.theme || '') !== filterSetTheme) return false;
+    if (filterPolybag === 'YES') return (s.polybag?.toLowerCase() === 'yes' || s.polybag?.toLowerCase() === 'true');
+    if (filterPolybag === 'NO') return (!s.polybag || s.polybag?.toLowerCase() === 'no' || s.polybag?.toLowerCase() === 'false');
+    return true;
   });
 
   const sortedSets = sortData(filteredSets, (item, field) => {
@@ -482,11 +495,14 @@ function App() {
 
   const filteredMinifigs = minifigs.filter(f => {
     const q = minifigSearchQuery.toLowerCase();
-    const matchesSearch = f.fig_name?.toLowerCase().includes(q) || f.fig_number?.toLowerCase().includes(q) || f.notes?.toLowerCase().includes(q);
-    if (minifigStatusFilter !== 'ALL') {
-      return matchesSearch && (f.status || 'In Collection') === minifigStatusFilter;
-    }
-    return matchesSearch;
+    const matchesSearch = f.fig_name?.toLowerCase().includes(q) || 
+                          f.fig_number?.toLowerCase().includes(q) || 
+                          f.theme?.toLowerCase().includes(q) || 
+                          f.notes?.toLowerCase().includes(q);
+    if (!matchesSearch) return false;
+    if (filterFigTheme !== 'ALL' && (f.theme || '') !== filterFigTheme) return false;
+    if (minifigStatusFilter !== 'ALL' && (f.status || 'In Collection') !== minifigStatusFilter) return false;
+    return true;
   });
 
   const sortedMinifigs = sortData(filteredMinifigs, (item, field) => {
@@ -595,7 +611,16 @@ function App() {
           </section>
 
           <section className="controls-row">
-            <input type="text" placeholder="Search name, set #, store, notes..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
+            <input type="text" placeholder="Search name, set #, theme, store..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
+            <div className="filter-group">
+              <label>Theme:</label>
+              <select value={filterSetTheme} onChange={(e) => setFilterSetTheme(e.target.value)}>
+                <option value="ALL">All Themes</option>
+                {availableSetThemes.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
             <div className="filter-group">
               <label>Polybag:</label>
               <select value={filterPolybag} onChange={(e) => setFilterPolybag(e.target.value)}>
@@ -605,6 +630,7 @@ function App() {
             {renderSortControl([
               { value: 'set_number', label: 'Set #' },
               { value: 'set_name', label: 'Name' },
+              { value: 'theme', label: 'Theme' },
               { value: 'market_price', label: 'Market Value' },
               { value: 'purchase_price', label: 'Cost' },
               { value: 'new_shelf', label: 'Shelf' },
@@ -627,6 +653,7 @@ function App() {
                     <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
                     <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
                     <th onClick={() => handleSort('new_shelf')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('new_shelf')}</th>
+                    <th onClick={() => handleSort('theme')} style={{ cursor: 'pointer' }}>Theme{renderSortArrow('theme')}</th>
                     <th onClick={() => handleSort('purchase_dt')} style={{ cursor: 'pointer' }}>Purchased{renderSortArrow('purchase_dt')}</th>
                     <th onClick={() => handleSort('store')} style={{ cursor: 'pointer' }}>Store{renderSortArrow('store')}</th>
                     <th>Notes</th>
@@ -641,13 +668,14 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.set_number}</strong></td>
+                        <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}</td>
                         <td>{item.set_name}</td>
                         <td>{item.quantity}</td>
                         <td>{item.condition || 'N/A'}</td>
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.new_shelf || '-'}</td>
+                        <td>{item.theme || '-'}</td>
                         <td>{item.purchase_dt || '-'}</td>
                         <td>{item.store || '-'}</td>
                         <td>{item.item_notes || '-'}</td>
@@ -675,7 +703,16 @@ function App() {
           </section>
 
           <section className="controls-row">
-            <input type="text" placeholder="Search minifigs..." value={minifigSearchQuery} onChange={(e) => setMinifigSearchQuery(e.target.value)} className="search-input" />
+            <input type="text" placeholder="Search minifigs or themes..." value={minifigSearchQuery} onChange={(e) => setMinifigSearchQuery(e.target.value)} className="search-input" />
+            <div className="filter-group">
+              <label>Theme:</label>
+              <select value={filterFigTheme} onChange={(e) => setFilterFigTheme(e.target.value)}>
+                <option value="ALL">All Themes</option>
+                {availableFigThemes.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
             <div className="filter-group">
               <label>Status:</label>
               <select value={minifigStatusFilter} onChange={(e) => setMinifigStatusFilter(e.target.value)}>
@@ -688,6 +725,7 @@ function App() {
             {renderSortControl([
               { value: 'fig_number', label: 'Fig #' },
               { value: 'fig_name', label: 'Name' },
+              { value: 'theme', label: 'Theme' },
               { value: 'market_price', label: 'Market Value' },
               { value: 'purchase_price', label: 'Cost' },
               { value: 'status', label: 'Status' },
@@ -714,6 +752,7 @@ function App() {
                     <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
                     <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
                     <th onClick={() => handleSort('shelf_location')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('shelf_location')}</th>
+                    <th onClick={() => handleSort('theme')} style={{ cursor: 'pointer' }}>Theme{renderSortArrow('theme')}</th>
                     <th>Notes</th>
                     <th>Actions</th>
                   </tr>
@@ -728,7 +767,7 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.fig_number}</strong></td>
+                        <td><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}</td>
                         <td>{item.fig_name}</td>
                         <td>
                           <span className={`status-badge ${isForSale ? 'badge-sale' : status === 'Draft / Unsorted' ? 'badge-draft' : 'badge-collection'}`}>
@@ -740,6 +779,7 @@ function App() {
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.shelf_location || '-'}</td>
+                        <td>{item.theme || '-'}</td>
                         <td>{item.notes || '-'}</td>
                         <td className="actions-cell">
                           {isForSale && (
@@ -915,6 +955,10 @@ function App() {
                 <label>Set Name *</label>
                 <input type="text" required value={formData.set_name} onChange={(e) => setFormData({...formData, set_name: e.target.value})} />
               </div>
+              <div className="form-group">
+                <label>Theme</label>
+                <input type="text" placeholder="e.g. Star Wars, Ninjago, Technic" value={formData.theme} onChange={(e) => setFormData({...formData, theme: e.target.value})} />
+              </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>Quantity</label>
@@ -998,6 +1042,10 @@ function App() {
               <div className="form-group">
                 <label>Fig Name *</label>
                 <input type="text" required value={figFormData.fig_name} onChange={(e) => setFigFormData({...figFormData, fig_name: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Theme</label>
+                <input type="text" placeholder="e.g. Star Wars, Ninjago, Marvel" value={figFormData.theme} onChange={(e) => setFigFormData({...figFormData, theme: e.target.value})} />
               </div>
               <div className="form-row">
                 <div className="form-group">
