@@ -3,6 +3,33 @@ import './App.css';
 
 const API_BASE = "https://lego-inventory-backend.onrender.com";
 
+const CACHE_KEYS = {
+  sets: 'lego_tracker_cache_sets_v1',
+  minifigs: 'lego_tracker_cache_minifigs_v1',
+  wishlist: 'lego_tracker_cache_wishlist_v1',
+  sales: 'lego_tracker_cache_sales_v1',
+  lastUpdated: 'lego_tracker_cache_updated_v1'
+};
+
+const readCache = (key, fallback = []) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    console.warn("Local cache read error:", err);
+    return fallback;
+  }
+};
+
+const writeCache = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+    localStorage.setItem(CACHE_KEYS.lastUpdated, new Date().toLocaleString());
+  } catch (err) {
+    console.warn("Local cache write error:", err);
+  }
+};
+
 const formatImageUrl = (url, itemNumber, isMinifig = false) => {
   if (itemNumber && itemNumber !== 'N/A' && itemNumber !== 'Unknown') {
     if (isMinifig) {
@@ -42,24 +69,27 @@ const exportToCSV = (data, filename = 'lego_inventory.csv') => {
 
 function App() {
   const [activeTab, setActiveTab] = useState('sets');
-  
-  const [sets, setSets] = useState([]);
-  const [loadingSets, setLoadingSets] = useState(true);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [lastCachedTime, setLastCachedTime] = useState(() => localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+
+  // Initialize state immediately from phone's local cache for zero-wait startup
+  const [sets, setSets] = useState(() => readCache(CACHE_KEYS.sets, []));
+  const [loadingSets, setLoadingSets] = useState(() => readCache(CACHE_KEYS.sets, []).length === 0);
   const [filterPolybag, setFilterPolybag] = useState('ALL');
   const [filterSetTheme, setFilterSetTheme] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [minifigs, setMinifigs] = useState([]);
+  const [minifigs, setMinifigs] = useState(() => readCache(CACHE_KEYS.minifigs, []));
   const [loadingMinifigs, setLoadingMinifigs] = useState(false);
   const [minifigSearchQuery, setMinifigSearchQuery] = useState('');
   const [minifigStatusFilter, setMinifigStatusFilter] = useState('ALL');
   const [filterFigTheme, setFilterFigTheme] = useState('ALL');
 
-  const [wishlist, setWishlist] = useState([]);
+  const [wishlist, setWishlist] = useState(() => readCache(CACHE_KEYS.wishlist, []));
   const [loadingWishlist, setLoadingWishlist] = useState(false);
   const [wishlistSearchQuery, setWishlistSearchQuery] = useState('');
 
-  const [sales, setSales] = useState([]);
+  const [sales, setSales] = useState(() => readCache(CACHE_KEYS.sales, []));
   const [loadingSales, setLoadingSales] = useState(false);
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
 
@@ -103,43 +133,92 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef(null);
 
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const fetchSets = async () => {
-    setLoadingSets(true);
+    if (sets.length === 0) setLoadingSets(true);
     try {
       const res = await fetch(`${API_BASE}/sets`);
-      if (res.ok) setSets(await res.json());
-    } catch (err) { console.error(err); } finally { setLoadingSets(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setSets(data);
+        writeCache(CACHE_KEYS.sets, data);
+        setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+      }
+    } catch (err) {
+      console.warn("Offline or server unreachable (using cached sets):", err);
+    } finally {
+      setLoadingSets(false);
+    }
   };
 
   const fetchMinifigs = async () => {
-    setLoadingMinifigs(true);
+    if (minifigs.length === 0) setLoadingMinifigs(true);
     try {
       const res = await fetch(`${API_BASE}/minifigs`);
-      if (res.ok) setMinifigs(await res.json());
-    } catch (err) { console.error(err); } finally { setLoadingMinifigs(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setMinifigs(data);
+        writeCache(CACHE_KEYS.minifigs, data);
+        setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+      }
+    } catch (err) {
+      console.warn("Offline or server unreachable (using cached minifigs):", err);
+    } finally {
+      setLoadingMinifigs(false);
+    }
   };
 
   const fetchWishlist = async () => {
-    setLoadingWishlist(true);
+    if (wishlist.length === 0) setLoadingWishlist(true);
     try {
       const res = await fetch(`${API_BASE}/wishlist`);
-      if (res.ok) setWishlist(await res.json());
-    } catch (err) { console.error(err); } finally { setLoadingWishlist(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setWishlist(data);
+        writeCache(CACHE_KEYS.wishlist, data);
+        setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+      }
+    } catch (err) {
+      console.warn("Offline or server unreachable (using cached wishlist):", err);
+    } finally {
+      setLoadingWishlist(false);
+    }
   };
 
   const fetchSales = async () => {
-    setLoadingSales(true);
+    if (sales.length === 0) setLoadingSales(true);
     try {
       const res = await fetch(`${API_BASE}/sales`);
-      if (res.ok) setSales(await res.json());
-    } catch (err) { console.error(err); } finally { setLoadingSales(false); }
+      if (res.ok) {
+        const data = await res.json();
+        setSales(data);
+        writeCache(CACHE_KEYS.sales, data);
+        setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+      }
+    } catch (err) {
+      console.warn("Offline or server unreachable (using cached sales):", err);
+    } finally {
+      setLoadingSales(false);
+    }
   };
 
   useEffect(() => {
-    fetchSets();
-    fetchMinifigs();
-    fetchWishlist();
-    fetchSales();
+    if (navigator.onLine) {
+      fetchSets();
+      fetchMinifigs();
+      fetchWishlist();
+      fetchSales();
+    }
   }, []);
 
   const handleSort = (field) => {
@@ -152,16 +231,18 @@ function App() {
   };
 
   const handleSync = async () => {
-    setSyncStatus('Syncing with BrickLink API (prices, images & themes)...');
+    if (!navigator.onLine) {
+      setSyncStatus('📴 You are offline — showing saved phone inventory.');
+      return;
+    }
+    setSyncStatus('Syncing with BrickLink API & updating local phone cache...');
     try {
       const res = await fetch(`${API_BASE}/sync-bricklink`, { method: 'POST' });
       const data = await res.json();
-      setSyncStatus(data.message || 'Sync completed.');
-      fetchSets();
-      fetchMinifigs();
-      fetchWishlist();
+      setSyncStatus(data.message || 'Sync completed & saved offline.');
+      await Promise.all([fetchSets(), fetchMinifigs(), fetchWishlist(), fetchSales()]);
     } catch (err) {
-      setSyncStatus('Error syncing with BrickLink.');
+      setSyncStatus('Error syncing with BrickLink (offline cache preserved).');
     }
   };
 
@@ -567,7 +648,13 @@ function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>🧱 LEGO Collection Tracker</h1>
+        <div>
+          <h1>🧱 LEGO Tracker</h1>
+          <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>
+            {isOnline ? '🟢 Online' : '📴 Offline'}
+            {lastCachedTime ? ` · Saved: ${lastCachedTime}` : ''}
+          </div>
+        </div>
         <div className="header-actions">
           <button 
             className="btn btn-secondary" 
@@ -578,9 +665,9 @@ function App() {
               `${activeTab}_export.csv`
             )}
           >
-            📥 Export {activeTab.toUpperCase()} CSV
+            📥 CSV
           </button>
-          <button className="btn btn-primary" onClick={handleSync}>Sync BrickLink Data</button>
+          <button className="btn btn-primary" onClick={handleSync}>Sync</button>
         </div>
       </header>
 
@@ -589,15 +676,21 @@ function App() {
           📦 Sets ({sets.length})
         </button>
         <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); setSortOrder('asc'); }}>
-          🦸 Minifigures ({minifigs.length})
+          🦸 Minifigs ({minifigs.length})
         </button>
         <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); setSortOrder('asc'); }}>
           ⭐ Wishlist ({wishlist.length})
         </button>
         <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => { setActiveTab('sales'); setSortField('sale_date'); setSortOrder('desc'); }}>
-          💰 Sales Log ({sales.length})
+          💰 Sales ({sales.length})
         </button>
       </nav>
+
+      {!isOnline && (
+        <div className="sync-banner" style={{ backgroundColor: '#b45309' }}>
+          📴 Offline Mode — Viewing cached inventory stored on your device
+        </div>
+      )}
 
       {syncStatus && <div className="sync-banner">{syncStatus}</div>}
 
