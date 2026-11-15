@@ -8,7 +8,8 @@ const CACHE_KEYS = {
   minifigs: 'lego_tracker_cache_minifigs_v1',
   wishlist: 'lego_tracker_cache_wishlist_v1',
   sales: 'lego_tracker_cache_sales_v1',
-  lastUpdated: 'lego_tracker_cache_updated_v1'
+  lastUpdated: 'lego_tracker_cache_updated_v1',
+  offlineQueue: 'lego_tracker_offline_queue_v1'
 };
 
 const readCache = (key, fallback = []) => {
@@ -27,6 +28,16 @@ const writeCache = (key, data) => {
     localStorage.setItem(CACHE_KEYS.lastUpdated, new Date().toLocaleString());
   } catch (err) {
     console.warn("Local cache write error:", err);
+  }
+};
+
+const readQueue = () => readCache(CACHE_KEYS.offlineQueue, []);
+
+const writeQueue = (queue) => {
+  try {
+    localStorage.setItem(CACHE_KEYS.offlineQueue, JSON.stringify(queue));
+  } catch (err) {
+    console.warn("Offline queue write error:", err);
   }
 };
 
@@ -71,6 +82,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('sets');
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [lastCachedTime, setLastCachedTime] = useState(() => localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+  const [pendingQueue, setPendingQueue] = useState(() => readQueue());
+  const isFlushingRef = useRef(false);
 
   // Initialize state immediately from phone's local cache for zero-wait startup
   const [sets, setSets] = useState(() => readCache(CACHE_KEYS.sets, []));
@@ -133,16 +146,11 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  const enqueueOfflineAction = (action) => {
+    const updated = [...readQueue(), { ...action, queueId: Date.now() + Math.random(), createdAt: new Date().toISOString() }];
+    writeQueue(updated);
+    setPendingQueue(updated);
+  };
 
   const fetchSets = async () => {
     if (sets.length === 0) setLoadingSets(true);
@@ -212,12 +220,71 @@ function App() {
     }
   };
 
+  const flushOfflineQueue = async (silent = false) => {
+    const queue = readQueue();
+    if (!queue.length || !navigator.onLine || isFlushingRef.current) return 0;
+
+    isFlushingRef.current = true;
+    if (!silent) setSyncStatus(`Uploading ${queue.length} offline change(s) to server...`);
+
+    const remaining = [];
+    let uploadedCount = 0;
+
+    for (const item of queue) {
+      try {
+        const res = await fetch(`${API_BASE}${item.endpoint}`, {
+          method: item.method,
+          headers: item.body ? { 'Content-Type': 'application/json' } : undefined,
+          body: item.body ? JSON.stringify(item.body) : undefined
+        });
+        if (res.ok || res.status === 404) {
+          uploadedCount++;
+        } else {
+          remaining.push(item);
+        }
+      } catch (err) {
+        remaining.push(item);
+      }
+    }
+
+    writeQueue(remaining);
+    setPendingQueue(remaining);
+    isFlushingRef.current = false;
+
+    if (uploadedCount > 0) {
+      await Promise.all([fetchSets(), fetchMinifigs(), fetchWishlist(), fetchSales()]);
+      if (!silent) {
+        setSyncStatus(`✅ Uploaded ${uploadedCount} offline change(s) and updated local cache!`);
+      }
+    }
+    return uploadedCount;
+  };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      flushOfflineQueue(false);
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (navigator.onLine) {
-      fetchSets();
-      fetchMinifigs();
-      fetchWishlist();
-      fetchSales();
+      flushOfflineQueue(true).then((uploaded) => {
+        if (!uploaded) {
+          fetchSets();
+          fetchMinifigs();
+          fetchWishlist();
+          fetchSales();
+        }
+      });
     }
   }, []);
 
@@ -232,9 +299,10 @@ function App() {
 
   const handleSync = async () => {
     if (!navigator.onLine) {
-      setSyncStatus('📴 You are offline — showing saved phone inventory.');
+      setSyncStatus('📴 You are offline — changes are queued safely on your phone.');
       return;
     }
+    await flushOfflineQueue(false);
     setSyncStatus('Syncing with BrickLink API & updating local phone cache...');
     try {
       const res = await fetch(`${API_BASE}/sync-bricklink`, { method: 'POST' });
@@ -254,7 +322,7 @@ function App() {
 
   const handleLookupSet = async () => {
     const cleanNum = formData.set_number.trim();
-    if (!cleanNum) return;
+    if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpSet(true);
     try {
       const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}`);
@@ -275,7 +343,7 @@ function App() {
 
   const handleLookupFig = async () => {
     const cleanNum = figFormData.fig_number.trim();
-    if (!cleanNum) return;
+    if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpFig(true);
     try {
       const res = await fetch(`${API_BASE}/lookup/MINIFIG/${encodeURIComponent(cleanNum)}`);
@@ -296,7 +364,7 @@ function App() {
 
   const handleLookupWish = async () => {
     const cleanNum = wishFormData.item_number.trim();
-    if (!cleanNum) return;
+    if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpWish(true);
     try {
       const res = await fetch(`${API_BASE}/lookup/${wishFormData.item_type}/${encodeURIComponent(cleanNum)}`);
@@ -313,6 +381,7 @@ function App() {
     }
   };
 
+  // --- SETS CRUD (WITH OFFLINE QUEUE FALLBACK) ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
       setEditingSet(setItem);
@@ -332,24 +401,83 @@ function App() {
     setIsModalOpen(true);
   };
 
+  const applySetLocally = () => {
+    let updated;
+    if (editingSet) {
+      updated = sets.map(s => s.id === editingSet.id ? { ...s, ...formData, _pendingSync: true } : s);
+    } else {
+      const tempItem = {
+        ...formData,
+        id: -Date.now(),
+        market_price_new: 0,
+        market_price_used: 0,
+        _pendingSync: true
+      };
+      updated = [tempItem, ...sets];
+    }
+    setSets(updated);
+    writeCache(CACHE_KEYS.sets, updated);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = editingSet ? `${API_BASE}/sets/${editingSet.id}` : `${API_BASE}/add-set`;
-    const method = editingSet ? 'PUT' : 'POST';
+    const isTempOfflineItem = editingSet && editingSet.id < 0;
+    const endpoint = (editingSet && !isTempOfflineItem) ? `/sets/${editingSet.id}` : `/add-set`;
+    const method = (editingSet && !isTempOfflineItem) ? 'PUT' : 'POST';
+
+    if (!navigator.onLine) {
+      applySetLocally();
+      enqueueOfflineAction({ endpoint, method, body: formData, label: `Set ${formData.set_number}` });
+      setIsModalOpen(false);
+      setSyncStatus(`📴 Saved Set ${formData.set_number} offline (will sync when back online).`);
+      return;
+    }
+
     try {
-      const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-      if (res.ok) { setIsModalOpen(false); fetchSets(); }
-    } catch (err) { console.error(err); }
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      if (res.ok) {
+        setIsModalOpen(false);
+        fetchSets();
+      } else {
+        throw new Error("Server returned error");
+      }
+    } catch (err) {
+      applySetLocally();
+      enqueueOfflineAction({ endpoint, method, body: formData, label: `Set ${formData.set_number}` });
+      setIsModalOpen(false);
+      setSyncStatus(`📴 Server unreachable — saved Set ${formData.set_number} to offline queue.`);
+    }
   };
 
   const handleDeleteSet = async (id) => {
     if (!window.confirm("Delete this set?")) return;
+    const updated = sets.filter(s => s.id !== id);
+    setSets(updated);
+    writeCache(CACHE_KEYS.sets, updated);
+
+    if (id < 0) return; // Was never uploaded to server
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
+      setSyncStatus('📴 Set deleted offline (will sync when back online).');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/sets/${id}`, { method: 'DELETE' });
       if (res.ok) fetchSets();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
+      setSyncStatus('📴 Server unreachable — delete queued for sync.');
+    }
   };
 
+  // --- MINIFIGS CRUD (WITH OFFLINE QUEUE FALLBACK) ---
   const handleOpenFigModal = (figItem = null) => {
     if (figItem) {
       setEditingFig(figItem);
@@ -367,22 +495,80 @@ function App() {
     setIsFigModalOpen(true);
   };
 
+  const applyFigLocally = () => {
+    let updated;
+    if (editingFig) {
+      updated = minifigs.map(f => f.id === editingFig.id ? { ...f, ...figFormData, _pendingSync: true } : f);
+    } else {
+      const tempItem = {
+        ...figFormData,
+        id: -Date.now(),
+        market_price_new: 0,
+        market_price_used: 0,
+        _pendingSync: true
+      };
+      updated = [tempItem, ...minifigs];
+    }
+    setMinifigs(updated);
+    writeCache(CACHE_KEYS.minifigs, updated);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+  };
+
   const handleFigFormSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = editingFig ? `${API_BASE}/minifigs/${editingFig.id}` : `${API_BASE}/add-minifig`;
-    const method = editingFig ? 'PUT' : 'POST';
+    const isTempOfflineItem = editingFig && editingFig.id < 0;
+    const endpoint = (editingFig && !isTempOfflineItem) ? `/minifigs/${editingFig.id}` : `/add-minifig`;
+    const method = (editingFig && !isTempOfflineItem) ? 'PUT' : 'POST';
+
+    if (!navigator.onLine) {
+      applyFigLocally();
+      enqueueOfflineAction({ endpoint, method, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
+      setIsFigModalOpen(false);
+      setSyncStatus(`📴 Saved Minifig ${figFormData.fig_number} offline (will sync when back online).`);
+      return;
+    }
+
     try {
-      const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(figFormData) });
-      if (res.ok) { setIsFigModalOpen(false); fetchMinifigs(); }
-    } catch (err) { console.error(err); }
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(figFormData)
+      });
+      if (res.ok) {
+        setIsFigModalOpen(false);
+        fetchMinifigs();
+      } else {
+        throw new Error("Server returned error");
+      }
+    } catch (err) {
+      applyFigLocally();
+      enqueueOfflineAction({ endpoint, method, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
+      setIsFigModalOpen(false);
+      setSyncStatus(`📴 Server unreachable — saved Minifig ${figFormData.fig_number} to offline queue.`);
+    }
   };
 
   const handleDeleteFig = async (id) => {
     if (!window.confirm("Delete this minifigure?")) return;
+    const updated = minifigs.filter(f => f.id !== id);
+    setMinifigs(updated);
+    writeCache(CACHE_KEYS.minifigs, updated);
+
+    if (id < 0) return;
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({ endpoint: `/minifigs/${id}`, method: 'DELETE', label: `Delete minifig #${id}` });
+      setSyncStatus('📴 Minifigure deleted offline (will sync when back online).');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/minifigs/${id}`, { method: 'DELETE' });
       if (res.ok) fetchMinifigs();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      enqueueOfflineAction({ endpoint: `/minifigs/${id}`, method: 'DELETE', label: `Delete minifig #${id}` });
+      setSyncStatus('📴 Server unreachable — delete queued for sync.');
+    }
   };
 
   const handleQuickSellFig = (figItem) => {
@@ -413,6 +599,10 @@ function App() {
 
   const handleAnalyzePhoto = async () => {
     if (!previewImage) return;
+    if (!navigator.onLine) {
+      alert("AI photo recognition requires an internet connection. You can still add the minifigure manually while offline!");
+      return;
+    }
     setIsAnalyzing(true);
     try {
       const res = await fetch(`${API_BASE}/identify-minifig`, {
@@ -449,6 +639,7 @@ function App() {
     }
   };
 
+  // --- WISHLIST CRUD (WITH OFFLINE QUEUE FALLBACK) ---
   const handleOpenWishModal = (wishItem = null) => {
     if (wishItem) {
       setEditingWish(wishItem);
@@ -465,24 +656,83 @@ function App() {
     setIsWishModalOpen(true);
   };
 
+  const applyWishLocally = () => {
+    let updated;
+    if (editingWish) {
+      updated = wishlist.map(w => w.id === editingWish.id ? { ...w, ...wishFormData, _pendingSync: true } : w);
+    } else {
+      const tempItem = {
+        ...wishFormData,
+        id: -Date.now(),
+        market_price_new: 0,
+        market_price_used: 0,
+        _pendingSync: true
+      };
+      updated = [tempItem, ...wishlist];
+    }
+    setWishlist(updated);
+    writeCache(CACHE_KEYS.wishlist, updated);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+  };
+
   const handleWishFormSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = editingWish ? `${API_BASE}/wishlist/${editingWish.id}` : `${API_BASE}/add-wishlist`;
-    const method = editingWish ? 'PUT' : 'POST';
+    const isTempOfflineItem = editingWish && editingWish.id < 0;
+    const endpoint = (editingWish && !isTempOfflineItem) ? `/wishlist/${editingWish.id}` : `/add-wishlist`;
+    const method = (editingWish && !isTempOfflineItem) ? 'PUT' : 'POST';
+
+    if (!navigator.onLine) {
+      applyWishLocally();
+      enqueueOfflineAction({ endpoint, method, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
+      setIsWishModalOpen(false);
+      setSyncStatus(`📴 Saved Wishlist ${wishFormData.item_number} offline (will sync when back online).`);
+      return;
+    }
+
     try {
-      const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(wishFormData) });
-      if (res.ok) { setIsWishModalOpen(false); fetchWishlist(); }
-    } catch (err) { console.error(err); }
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(wishFormData)
+      });
+      if (res.ok) {
+        setIsWishModalOpen(false);
+        fetchWishlist();
+      } else {
+        throw new Error("Server returned error");
+      }
+    } catch (err) {
+      applyWishLocally();
+      enqueueOfflineAction({ endpoint, method, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
+      setIsWishModalOpen(false);
+      setSyncStatus(`📴 Server unreachable — saved Wishlist ${wishFormData.item_number} to offline queue.`);
+    }
   };
 
   const handleDeleteWish = async (id) => {
     if (!window.confirm("Delete this wishlist item?")) return;
+    const updated = wishlist.filter(w => w.id !== id);
+    setWishlist(updated);
+    writeCache(CACHE_KEYS.wishlist, updated);
+
+    if (id < 0) return;
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({ endpoint: `/wishlist/${id}`, method: 'DELETE', label: `Delete wishlist #${id}` });
+      setSyncStatus('📴 Wishlist item deleted offline (will sync when back online).');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/wishlist/${id}`, { method: 'DELETE' });
       if (res.ok) fetchWishlist();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      enqueueOfflineAction({ endpoint: `/wishlist/${id}`, method: 'DELETE', label: `Delete wishlist #${id}` });
+      setSyncStatus('📴 Server unreachable — delete queued for sync.');
+    }
   };
 
+  // --- SALES CRUD (WITH OFFLINE QUEUE FALLBACK) ---
   const handleOpenSaleModal = (saleItem = null) => {
     if (saleItem) {
       setEditingSale(saleItem);
@@ -502,22 +752,80 @@ function App() {
     setIsSaleModalOpen(true);
   };
 
+  const applySaleLocally = () => {
+    const net_profit = (saleFormData.sale_price || 0) - ((saleFormData.cost_price || 0) + (saleFormData.platform_fees || 0) + (saleFormData.shipping_cost || 0));
+    let updated;
+    if (editingSale) {
+      updated = sales.map(s => s.id === editingSale.id ? { ...s, ...saleFormData, net_profit, _pendingSync: true } : s);
+    } else {
+      const tempItem = {
+        ...saleFormData,
+        id: -Date.now(),
+        net_profit,
+        _pendingSync: true
+      };
+      updated = [tempItem, ...sales];
+    }
+    setSales(updated);
+    writeCache(CACHE_KEYS.sales, updated);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+  };
+
   const handleSaleFormSubmit = async (e) => {
     e.preventDefault();
-    const endpoint = editingSale ? `${API_BASE}/sales/${editingSale.id}` : `${API_BASE}/add-sale`;
-    const method = editingSale ? 'PUT' : 'POST';
+    const isTempOfflineItem = editingSale && editingSale.id < 0;
+    const endpoint = (editingSale && !isTempOfflineItem) ? `/sales/${editingSale.id}` : `/add-sale`;
+    const method = (editingSale && !isTempOfflineItem) ? 'PUT' : 'POST';
+
+    if (!navigator.onLine) {
+      applySaleLocally();
+      enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
+      setIsSaleModalOpen(false);
+      setSyncStatus(`📴 Logged sale for ${saleFormData.item_number} offline (will sync when back online).`);
+      return;
+    }
+
     try {
-      const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(saleFormData) });
-      if (res.ok) { setIsSaleModalOpen(false); fetchSales(); }
-    } catch (err) { console.error(err); }
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saleFormData)
+      });
+      if (res.ok) {
+        setIsSaleModalOpen(false);
+        fetchSales();
+      } else {
+        throw new Error("Server returned error");
+      }
+    } catch (err) {
+      applySaleLocally();
+      enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
+      setIsSaleModalOpen(false);
+      setSyncStatus(`📴 Server unreachable — saved Sale ${saleFormData.item_number} to offline queue.`);
+    }
   };
 
   const handleDeleteSale = async (id) => {
     if (!window.confirm("Delete this sale entry?")) return;
+    const updated = sales.filter(s => s.id !== id);
+    setSales(updated);
+    writeCache(CACHE_KEYS.sales, updated);
+
+    if (id < 0) return;
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({ endpoint: `/sales/${id}`, method: 'DELETE', label: `Delete sale #${id}` });
+      setSyncStatus('📴 Sale deleted offline (will sync when back online).');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/sales/${id}`, { method: 'DELETE' });
       if (res.ok) fetchSales();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      enqueueOfflineAction({ endpoint: `/sales/${id}`, method: 'DELETE', label: `Delete sale #${id}` });
+      setSyncStatus('📴 Server unreachable — delete queued for sync.');
+    }
   };
 
   const sortData = (data, getValFunc) => {
@@ -650,8 +958,9 @@ function App() {
       <header className="app-header">
         <div>
           <h1>🧱 LEGO Tracker</h1>
-          <div style={{ fontSize: '0.72rem', opacity: 0.8, marginTop: '2px' }}>
+          <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '2px' }}>
             {isOnline ? '🟢 Online' : '📴 Offline'}
+            {pendingQueue.length > 0 ? ` · 🟡 ${pendingQueue.length} pending` : ''}
             {lastCachedTime ? ` · Saved: ${lastCachedTime}` : ''}
           </div>
         </div>
@@ -667,7 +976,9 @@ function App() {
           >
             📥 CSV
           </button>
-          <button className="btn btn-primary" onClick={handleSync}>Sync</button>
+          <button className="btn btn-primary" onClick={handleSync}>
+            {pendingQueue.length > 0 ? `Sync (${pendingQueue.length})` : 'Sync'}
+          </button>
         </div>
       </header>
 
@@ -688,7 +999,7 @@ function App() {
 
       {!isOnline && (
         <div className="sync-banner" style={{ backgroundColor: '#b45309' }}>
-          📴 Offline Mode — Viewing cached inventory stored on your device
+          📴 Offline Mode — Edits save locally and upload automatically when reconnected
         </div>
       )}
 
@@ -761,7 +1072,7 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}</td>
+                        <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.set_name}</td>
                         <td>{item.quantity}</td>
                         <td>{item.condition || 'N/A'}</td>
@@ -860,7 +1171,7 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}</td>
+                        <td><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.fig_name}</td>
                         <td>
                           <span className={`status-badge ${isForSale ? 'badge-sale' : status === 'Draft / Unsorted' ? 'badge-draft' : 'badge-collection'}`}>
@@ -933,7 +1244,7 @@ function App() {
                     return (
                       <tr key={item.id}>
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.item_number}</strong></td>
+                        <td><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.item_name}</td>
                         <td>{item.item_type}</td>
                         <td>{item.priority}</td>
@@ -994,7 +1305,7 @@ function App() {
                 <tbody>
                   {sortedSales.map((item) => (
                     <tr key={item.id}>
-                      <td><strong>{item.item_number}</strong></td>
+                      <td><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
                       <td>{item.item_name}</td>
                       <td>{item.sale_date}</td>
                       <td>${(item.sale_price || 0).toFixed(2)}</td>
@@ -1038,7 +1349,7 @@ function App() {
                     type="button" 
                     className="btn btn-secondary" 
                     onClick={handleLookupSet}
-                    disabled={isLookingUpSet || !formData.set_number}
+                    disabled={isLookingUpSet || !formData.set_number || !isOnline}
                   >
                     {isLookingUpSet ? '...' : '🔍 Lookup'}
                   </button>
@@ -1126,7 +1437,7 @@ function App() {
                     type="button" 
                     className="btn btn-secondary" 
                     onClick={handleLookupFig}
-                    disabled={isLookingUpFig || !figFormData.fig_number}
+                    disabled={isLookingUpFig || !figFormData.fig_number || !isOnline}
                   >
                     {isLookingUpFig ? '...' : '🔍 Lookup'}
                   </button>
@@ -1205,7 +1516,7 @@ function App() {
                     type="button" 
                     className="btn btn-secondary" 
                     onClick={handleLookupWish}
-                    disabled={isLookingUpWish || !wishFormData.item_number}
+                    disabled={isLookingUpWish || !wishFormData.item_number || !isOnline}
                   >
                     {isLookingUpWish ? '...' : '🔍 Lookup'}
                   </button>
