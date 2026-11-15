@@ -69,7 +69,7 @@ const exportToCSV = (data, filename = 'lego_inventory.csv') => {
     alert("No data available to export.");
     return;
   }
-  const headers = Object.keys(data[0]);
+  const headers = Object.keys(data[0]).filter(k => !k.startsWith('_'));
   const csvRows = [
     headers.join(','),
     ...data.map(row => 
@@ -86,6 +86,187 @@ const exportToCSV = (data, filename = 'lego_inventory.csv') => {
   a.setAttribute('href', url);
   a.setAttribute('download', filename);
   a.click();
+  window.URL.revokeObjectURL(url);
+};
+
+// Robust RFC-4180 CSV parser supporting quoted commas & newlines
+const parseCSVText = (text) => {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(field);
+        field = '';
+      } else if (ch === '\r' && next === '\n') {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+        i++;
+      } else if (ch === '\n' || ch === '\r') {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+      } else {
+        field += ch;
+      }
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  const nonEmptyRows = rows.filter(r => r.some(cell => cell.trim() !== ''));
+  if (nonEmptyRows.length < 2) return [];
+
+  const rawHeaders = nonEmptyRows[0].map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
+  return nonEmptyRows.slice(1).map(cells => {
+    const obj = {};
+    rawHeaders.forEach((h, idx) => {
+      if (h) obj[h] = (cells[idx] || '').trim();
+    });
+    return obj;
+  });
+};
+
+const pickCol = (row, aliases, fallback = '') => {
+  for (const key of aliases) {
+    if (row[key] !== undefined && row[key] !== '') return row[key];
+  }
+  return fallback;
+};
+
+const parseMoney = (val) => {
+  if (!val) return 0;
+  const cleaned = String(val).replace(/[^0-9.-]/g, '');
+  const num = parseFloat(cleaned);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const normalizeCondition = (val) => {
+  const v = String(val || '').trim().toLowerCase();
+  if (v === 'u' || v === 'used') return 'Used';
+  return 'New';
+};
+
+const normalizePolybag = (val) => {
+  const v = String(val || '').trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return 'Yes';
+  return 'No';
+};
+
+const mapCsvRowsForTarget = (rawRows, targetType) => {
+  const mapped = [];
+  let skipped = 0;
+
+  rawRows.forEach(r => {
+    if (targetType === 'SETS') {
+      const setNum = pickCol(r, ['set_number', 'set num', 'setnumber', 'set_num', 'number', 'item_number', 'item no']);
+      if (!setNum) { skipped++; return; }
+      const setName = pickCol(r, ['set_name', 'name', 'set name', 'title', 'description'], `Set ${setNum}`);
+      mapped.push({
+        set_number: setNum,
+        set_name: setName,
+        theme: pickCol(r, ['theme', 'category', 'theme_name'], ''),
+        quantity: Math.max(1, parseInt(pickCol(r, ['quantity', 'qty', 'owned'], '1'), 10) || 1),
+        condition: normalizeCondition(pickCol(r, ['condition', 'cond', 'new/used'], 'New')),
+        purchase_price: parseMoney(pickCol(r, ['purchase_price', 'cost', 'my cost', 'price', 'paid'], '0')),
+        purchase_dt: pickCol(r, ['purchase_dt', 'purchase_date', 'date', 'purchased'], ''),
+        new_shelf: pickCol(r, ['new_shelf', 'shelf', 'shelf_location', 'location', 'bin'], ''),
+        store: pickCol(r, ['store', 'source', 'retailer', 'seller'], ''),
+        polybag: normalizePolybag(pickCol(r, ['polybag', 'is_polybag'], 'No')),
+        item_notes: pickCol(r, ['item_notes', 'notes', 'remarks', 'comment'], '')
+      });
+    } else if (targetType === 'MINIFIGS') {
+      const figNum = pickCol(r, ['fig_number', 'fig num', 'fignumber', 'fig_num', 'item_number', 'number', 'item no']);
+      if (!figNum) { skipped++; return; }
+      const figName = pickCol(r, ['fig_name', 'name', 'fig name', 'title', 'description'], `Minifig ${figNum}`);
+      mapped.push({
+        fig_number: figNum,
+        fig_name: figName,
+        theme: pickCol(r, ['theme', 'category', 'theme_name'], ''),
+        quantity: Math.max(1, parseInt(pickCol(r, ['quantity', 'qty', 'owned'], '1'), 10) || 1),
+        condition: normalizeCondition(pickCol(r, ['condition', 'cond', 'new/used'], 'New')),
+        purchase_price: parseMoney(pickCol(r, ['purchase_price', 'cost', 'my cost', 'price', 'paid'], '0')),
+        shelf_location: pickCol(r, ['shelf_location', 'new_shelf', 'shelf', 'location', 'bin'], ''),
+        status: pickCol(r, ['status'], 'In Collection'),
+        notes: pickCol(r, ['notes', 'item_notes', 'remarks', 'comment'], '')
+      });
+    } else if (targetType === 'WISHLIST') {
+      const itemNum = pickCol(r, ['item_number', 'set_number', 'fig_number', 'number', 'item no']);
+      if (!itemNum) { skipped++; return; }
+      const itemName = pickCol(r, ['item_name', 'set_name', 'fig_name', 'name', 'title'], `Item ${itemNum}`);
+      const rawType = pickCol(r, ['item_type', 'type'], '').toUpperCase();
+      const inferredType = rawType === 'MINIFIG' || rawType === 'SET'
+        ? rawType
+        : (/^[a-zA-Z]/.test(itemNum) ? 'MINIFIG' : 'SET');
+      mapped.push({
+        item_number: itemNum,
+        item_name: itemName,
+        item_type: inferredType,
+        target_price: parseMoney(pickCol(r, ['target_price', 'price', 'max_price', 'budget'], '0')),
+        priority: pickCol(r, ['priority'], 'Medium'),
+        notes: pickCol(r, ['notes', 'item_notes', 'remarks'], '')
+      });
+    } else if (targetType === 'SALES') {
+      const itemNum = pickCol(r, ['item_number', 'set_number', 'fig_number', 'number']);
+      if (!itemNum) { skipped++; return; }
+      const itemName = pickCol(r, ['item_name', 'set_name', 'fig_name', 'name'], `Item ${itemNum}`);
+      mapped.push({
+        item_number: itemNum,
+        item_name: itemName,
+        item_type: pickCol(r, ['item_type', 'type'], 'SET').toUpperCase(),
+        sale_date: pickCol(r, ['sale_date', 'date', 'sold_date'], new Date().toISOString().split('T')[0]),
+        sale_price: parseMoney(pickCol(r, ['sale_price', 'sold_price', 'price', 'revenue'], '0')),
+        cost_price: parseMoney(pickCol(r, ['cost_price', 'purchase_price', 'cost'], '0')),
+        platform_fees: parseMoney(pickCol(r, ['platform_fees', 'fees', 'fee'], '0')),
+        shipping_cost: parseMoney(pickCol(r, ['shipping_cost', 'shipping'], '0')),
+        platform: pickCol(r, ['platform', 'marketplace', 'channel'], 'eBay'),
+        notes: pickCol(r, ['notes', 'remarks'], '')
+      });
+    }
+  });
+
+  return { mapped, skipped };
+};
+
+const SAMPLE_CSV_TEMPLATES = {
+  SETS: {
+    filename: 'sample_sets_import.csv',
+    content: 'set_number,set_name,theme,quantity,condition,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,1,New,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n30654,X-Wing Starfighter,Star Wars,2,New,4.99,2026-01-10,Bin P2,Target,Yes,Polybag haul'
+  },
+  MINIFIGS: {
+    filename: 'sample_minifigs_import.csv',
+    content: 'fig_number,fig_name,theme,quantity,condition,purchase_price,shelf_location,status,notes\nsw0001a,Battle Droid Tan,Star Wars,3,Used,2.50,Case B2,In Collection,Clean joints\ncol24-11,Orc,Collectible Minifigures,1,New,5.00,Case B3,For Sale,Sealed'
+  },
+  WISHLIST: {
+    filename: 'sample_wishlist_import.csv',
+    content: 'item_number,item_name,item_type,target_price,priority,notes\n10316,The Lord of the Rings: Rivendell,SET,425.00,High,Watch for double points\nsw0540,Darth Revan,MINIFIG,220.00,Medium,Sealed polybag preferred'
+  },
+  SALES: {
+    filename: 'sample_sales_import.csv',
+    content: 'item_number,item_name,item_type,sale_date,sale_price,cost_price,platform_fees,shipping_cost,platform,notes\n75301,Luke Skywalker X-Wing Fighter,SET,2026-02-14,68.00,39.99,8.84,6.50,eBay,Sold fast'
+  }
 };
 
 function App() {
@@ -124,6 +305,16 @@ function App() {
   // Detail Sheet & Image Zoom State
   const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG', data: item }
   const [zoomedImageUrl, setZoomedImageUrl] = useState(null);
+
+  // CSV Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importTargetType, setImportTargetType] = useState('SETS');
+  const [importDuplicateMode, setImportDuplicateMode] = useState('ADD_QTY'); // 'ADD_QTY' | 'SKIP' | 'SEPARATE'
+  const [importFileName, setImportFileName] = useState('');
+  const [importParsedRows, setImportParsedRows] = useState([]);
+  const [importSkippedCount, setImportSkippedCount] = useState(0);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const csvFileInputRef = useRef(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
@@ -328,6 +519,289 @@ function App() {
     } catch (err) {
       setSyncStatus('Error syncing with BrickLink (offline cache preserved).');
     }
+  };
+
+  // --- CSV IMPORT HANDLERS ---
+  const handleOpenImportModal = () => {
+    const defaultTarget =
+      activeTab === 'minifigs' ? 'MINIFIGS' :
+      activeTab === 'wishlist' ? 'WISHLIST' :
+      activeTab === 'sales' ? 'SALES' : 'SETS';
+    setImportTargetType(defaultTarget);
+    setImportDuplicateMode('ADD_QTY');
+    setImportFileName('');
+    setImportParsedRows([]);
+    setImportSkippedCount(0);
+    setIsImportModalOpen(true);
+  };
+
+  const handleCsvFileSelected = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawRows = parseCSVText(ev.target.result || '');
+      const { mapped, skipped } = mapCsvRowsForTarget(rawRows, importTargetType);
+      setImportParsedRows(mapped);
+      setImportSkippedCount(skipped);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportTargetChange = (newTarget) => {
+    setImportTargetType(newTarget);
+    if (csvFileInputRef.current && csvFileInputRef.current.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const rawRows = parseCSVText(ev.target.result || '');
+        const { mapped, skipped } = mapCsvRowsForTarget(rawRows, newTarget);
+        setImportParsedRows(mapped);
+        setImportSkippedCount(skipped);
+      };
+      reader.readAsText(csvFileInputRef.current.files[0]);
+    } else {
+      setImportParsedRows([]);
+      setImportSkippedCount(0);
+    }
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const tpl = SAMPLE_CSV_TEMPLATES[importTargetType];
+    const blob = new Blob([tpl.content], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', tpl.filename);
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleConfirmCsvImport = async () => {
+    if (!importParsedRows.length) return;
+    setIsImportingCsv(true);
+
+    let addedCount = 0;
+    let updatedCount = 0;
+    let skippedDupes = 0;
+    const apiOperations = [];
+
+    if (importTargetType === 'SETS') {
+      let nextSets = [...sets];
+      importParsedRows.forEach((row, idx) => {
+        const matchIndex = nextSets.findIndex(
+          s => String(s.set_number).trim().toLowerCase() === String(row.set_number).trim().toLowerCase() &&
+               (s.condition || 'New').toLowerCase() === (row.condition || 'New').toLowerCase()
+        );
+
+        if (matchIndex !== -1 && importDuplicateMode === 'SKIP') {
+          skippedDupes++;
+          return;
+        }
+
+        if (matchIndex !== -1 && importDuplicateMode === 'ADD_QTY') {
+          const existing = nextSets[matchIndex];
+          const newQty = (existing.quantity || 1) + (row.quantity || 1);
+          const merged = {
+            ...existing,
+            quantity: newQty,
+            set_name: row.set_name || existing.set_name,
+            theme: row.theme || existing.theme,
+            new_shelf: row.new_shelf || existing.new_shelf,
+            store: row.store || existing.store,
+            item_notes: row.item_notes || existing.item_notes,
+            _pendingSync: !navigator.onLine
+          };
+          nextSets[matchIndex] = merged;
+          updatedCount++;
+          if (existing.id > 0) {
+            apiOperations.push({
+              endpoint: `/sets/${existing.id}`,
+              method: 'PUT',
+              body: {
+                set_number: merged.set_number,
+                set_name: merged.set_name,
+                theme: merged.theme || null,
+                quantity: merged.quantity,
+                condition: merged.condition || 'New',
+                purchase_price: merged.purchase_price || 0.0,
+                purchase_dt: merged.purchase_dt || null,
+                new_shelf: merged.new_shelf || null,
+                item_notes: merged.item_notes || null,
+                store: merged.store || null,
+                polybag: merged.polybag || 'No'
+              },
+              label: `CSV Update Set ${merged.set_number}`
+            });
+          }
+        } else {
+          const tempItem = {
+            ...row,
+            id: -(Date.now() + idx + 1),
+            market_price_new: 0,
+            market_price_used: 0,
+            _pendingSync: !navigator.onLine
+          };
+          nextSets = [tempItem, ...nextSets];
+          addedCount++;
+          apiOperations.push({
+            endpoint: '/add-set',
+            method: 'POST',
+            body: row,
+            label: `CSV Add Set ${row.set_number}`
+          });
+        }
+      });
+      setSets(nextSets);
+      writeCache(CACHE_KEYS.sets, nextSets);
+    } else if (importTargetType === 'MINIFIGS') {
+      let nextFigs = [...minifigs];
+      importParsedRows.forEach((row, idx) => {
+        const matchIndex = nextFigs.findIndex(
+          f => String(f.fig_number).trim().toLowerCase() === String(row.fig_number).trim().toLowerCase() &&
+               (f.condition || 'New').toLowerCase() === (row.condition || 'New').toLowerCase()
+        );
+
+        if (matchIndex !== -1 && importDuplicateMode === 'SKIP') {
+          skippedDupes++;
+          return;
+        }
+
+        if (matchIndex !== -1 && importDuplicateMode === 'ADD_QTY') {
+          const existing = nextFigs[matchIndex];
+          const newQty = (existing.quantity || 1) + (row.quantity || 1);
+          const merged = {
+            ...existing,
+            quantity: newQty,
+            fig_name: row.fig_name || existing.fig_name,
+            theme: row.theme || existing.theme,
+            shelf_location: row.shelf_location || existing.shelf_location,
+            notes: row.notes || existing.notes,
+            _pendingSync: !navigator.onLine
+          };
+          nextFigs[matchIndex] = merged;
+          updatedCount++;
+          if (existing.id > 0) {
+            apiOperations.push({
+              endpoint: `/minifigs/${existing.id}`,
+              method: 'PUT',
+              body: {
+                fig_number: merged.fig_number,
+                fig_name: merged.fig_name,
+                theme: merged.theme || null,
+                quantity: merged.quantity,
+                condition: merged.condition || 'New',
+                purchase_price: merged.purchase_price || 0.0,
+                shelf_location: merged.shelf_location || null,
+                notes: merged.notes || null,
+                status: merged.status || 'In Collection'
+              },
+              label: `CSV Update Minifig ${merged.fig_number}`
+            });
+          }
+        } else {
+          const tempItem = {
+            ...row,
+            id: -(Date.now() + idx + 1),
+            market_price_new: 0,
+            market_price_used: 0,
+            _pendingSync: !navigator.onLine
+          };
+          nextFigs = [tempItem, ...nextFigs];
+          addedCount++;
+          apiOperations.push({
+            endpoint: '/add-minifig',
+            method: 'POST',
+            body: row,
+            label: `CSV Add Minifig ${row.fig_number}`
+          });
+        }
+      });
+      setMinifigs(nextFigs);
+      writeCache(CACHE_KEYS.minifigs, nextFigs);
+    } else if (importTargetType === 'WISHLIST') {
+      let nextWish = [...wishlist];
+      importParsedRows.forEach((row, idx) => {
+        const exists = nextWish.some(
+          w => String(w.item_number).trim().toLowerCase() === String(row.item_number).trim().toLowerCase()
+        );
+        if (exists && importDuplicateMode !== 'SEPARATE') {
+          skippedDupes++;
+          return;
+        }
+        const tempItem = {
+          ...row,
+          id: -(Date.now() + idx + 1),
+          market_price_new: 0,
+          market_price_used: 0,
+          _pendingSync: !navigator.onLine
+        };
+        nextWish = [tempItem, ...nextWish];
+        addedCount++;
+        apiOperations.push({
+          endpoint: '/add-wishlist',
+          method: 'POST',
+          body: row,
+          label: `CSV Add Wishlist ${row.item_number}`
+        });
+      });
+      setWishlist(nextWish);
+      writeCache(CACHE_KEYS.wishlist, nextWish);
+    } else if (importTargetType === 'SALES') {
+      let nextSales = [...sales];
+      importParsedRows.forEach((row, idx) => {
+        const net_profit = (row.sale_price || 0) - ((row.cost_price || 0) + (row.platform_fees || 0) + (row.shipping_cost || 0));
+        const tempItem = {
+          ...row,
+          id: -(Date.now() + idx + 1),
+          net_profit,
+          _pendingSync: !navigator.onLine
+        };
+        nextSales = [tempItem, ...nextSales];
+        addedCount++;
+        apiOperations.push({
+          endpoint: '/add-sale',
+          method: 'POST',
+          body: row,
+          label: `CSV Add Sale ${row.item_number}`
+        });
+      });
+      setSales(nextSales);
+      writeCache(CACHE_KEYS.sales, nextSales);
+    }
+
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+
+    if (!navigator.onLine) {
+      apiOperations.forEach(op => enqueueOfflineAction(op));
+    } else {
+      for (const op of apiOperations) {
+        try {
+          const res = await fetch(`${API_BASE}${op.endpoint}`, {
+            method: op.method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(op.body)
+          });
+          if (!res.ok) enqueueOfflineAction(op);
+        } catch (err) {
+          enqueueOfflineAction(op);
+        }
+      }
+      if (importTargetType === 'SETS') fetchSets();
+      else if (importTargetType === 'MINIFIGS') fetchMinifigs();
+      else if (importTargetType === 'WISHLIST') fetchWishlist();
+      else if (importTargetType === 'SALES') fetchSales();
+    }
+
+    setIsImportingCsv(false);
+    setIsImportModalOpen(false);
+    setActiveTab(importTargetType.toLowerCase());
+
+    const parts = [];
+    if (addedCount > 0) parts.push(`${addedCount} added`);
+    if (updatedCount > 0) parts.push(`${updatedCount} qty updated`);
+    if (skippedDupes > 0) parts.push(`${skippedDupes} skipped`);
+    setSyncStatus(`📤 CSV Import complete: ${parts.join(', ') || '0 changes'}${!navigator.onLine ? ' (queued offline)' : ''}.`);
   };
 
   const decodeHtml = (str) => {
@@ -863,7 +1337,6 @@ function App() {
       }
       return ` (Qty reduced ${currentQty} → ${newQty})`;
     } else {
-      // Quantity is 1 — remove item from active inventory
       if (isSet) {
         const updatedSets = sets.filter(s => s.id !== item.id);
         setSets(updatedSets);
@@ -1182,8 +1655,16 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
+          <button
+            className="btn btn-secondary"
+            title="Import items from CSV"
+            onClick={handleOpenImportModal}
+          >
+            📤 Import
+          </button>
           <button 
             className="btn btn-secondary" 
+            title="Export active tab to CSV"
             onClick={() => exportToCSV(
               activeTab === 'minifigs' ? minifigs : 
               activeTab === 'wishlist' ? wishlist : 
@@ -1663,6 +2144,136 @@ function App() {
         </>
       )}
 
+      {/* --- CSV IMPORT MODAL --- */}
+      {isImportModalOpen && (
+        <div className="modal-overlay" onClick={() => !isImportingCsv && setIsImportModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px' }}>
+            <h2>📤 Import from CSV</h2>
+            <p style={{ fontSize: '0.85rem', opacity: 0.85, marginTop: '4px', marginBottom: '12px' }}>
+              Upload a CSV exported from Google Sheets, Excel, or this app&apos;s <strong>📥 CSV</strong> button.
+            </p>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Import Into Tab</label>
+                <select
+                  value={importTargetType}
+                  disabled={isImportingCsv}
+                  onChange={(e) => handleImportTargetChange(e.target.value)}
+                >
+                  <option value="SETS">📦 Sets Inventory</option>
+                  <option value="MINIFIGS">🦸 Minifigures</option>
+                  <option value="WISHLIST">⭐ Wishlist</option>
+                  <option value="SALES">💰 Sales Log</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>If Item Already Exists</label>
+                <select
+                  value={importDuplicateMode}
+                  disabled={isImportingCsv}
+                  onChange={(e) => setImportDuplicateMode(e.target.value)}
+                >
+                  <option value="ADD_QTY">Add to Quantity</option>
+                  <option value="SKIP">Skip Duplicate</option>
+                  <option value="SEPARATE">Create Separate Row</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                ref={csvFileInputRef}
+                onChange={handleCsvFileSelected}
+                style={{ display: 'none' }}
+              />
+              <div
+                className="upload-box"
+                onClick={() => !isImportingCsv && csvFileInputRef.current && csvFileInputRef.current.click()}
+                style={{ padding: '16px', cursor: 'pointer' }}
+              >
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {importFileName ? `📄 ${importFileName}` : 'Tap here to choose a .CSV file'}
+                </p>
+                <small style={{ opacity: 0.8 }}>
+                  Accepts set_number / fig_number / item_number, name, theme, quantity, condition, purchase_price, shelf, store, notes
+                </small>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleDownloadSampleCsv}
+              >
+                ⬇️ Download Sample CSV Template
+              </button>
+              {importFileName && (
+                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                  ✅ {importParsedRows.length} valid row(s)
+                  {importSkippedCount > 0 ? ` · ⚠️ ${importSkippedCount} skipped` : ''}
+                </span>
+              )}
+            </div>
+
+            {importParsedRows.length > 0 && (
+              <div
+                style={{
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                  border: '1px solid rgba(148,163,184,0.3)',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  marginBottom: '14px',
+                  fontSize: '0.8rem'
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: '6px', opacity: 0.85 }}>
+                  Preview (first {Math.min(5, importParsedRows.length)} of {importParsedRows.length}):
+                </div>
+                {importParsedRows.slice(0, 5).map((r, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '4px 0',
+                      borderBottom: i < Math.min(4, importParsedRows.length - 1) ? '1px solid rgba(148,163,184,0.2)' : 'none'
+                    }}
+                  >
+                    <strong>{r.set_number || r.fig_number || r.item_number}</strong> —{' '}
+                    {r.set_name || r.fig_name || r.item_name}
+                    {r.quantity ? ` (Qty: ${r.quantity}, ${r.condition || 'New'})` : ''}
+                    {r.purchase_price ? ` · $${r.purchase_price.toFixed(2)}` : ''}
+                    {r.sale_price ? ` · Sold: $${r.sale_price.toFixed(2)}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isImportingCsv}
+                onClick={() => setIsImportModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-success"
+                disabled={!importParsedRows.length || isImportingCsv}
+                onClick={handleConfirmCsvImport}
+              >
+                {isImportingCsv ? 'Importing...' : `Import ${importParsedRows.length || ''} Item(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- SLIDE-UP CLZ DETAIL SHEET MODAL --- */}
       {detailItem && (() => {
         const isSet = detailItem.type === 'SET';
@@ -1704,7 +2315,6 @@ function App() {
                 borderTop: '1px solid rgba(255,255,255,0.18)'
               }}
             >
-              {/* Drag Handle & Close */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', color: '#94a3b8' }}>
                   {isSet ? '📦 SET DETAILS' : '🦸 MINIFIGURE DETAILS'}
@@ -1727,7 +2337,6 @@ function App() {
                 </button>
               </div>
 
-              {/* Hero Image (Tap to Zoom) & Title */}
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
                 <div
                   onClick={() => imageUrl && setZoomedImageUrl(imageUrl)}
@@ -1802,7 +2411,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Valuation & ROI Panel */}
               <div
                 style={{
                   display: 'grid',
@@ -1841,7 +2449,6 @@ function App() {
                 </div>
               </div>
 
-              {/* BrickLink New vs Used Price Guide */}
               <div
                 style={{
                   display: 'flex',
@@ -1858,7 +2465,6 @@ function App() {
                 <span>Avg Used: <strong style={{ color: '#fff' }}>${(item.market_price_used || 0).toFixed(2)}</strong></span>
               </div>
 
-              {/* Metadata Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem', marginBottom: '14px' }}>
                 <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
                   <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Shelf / Storage</div>
@@ -1883,7 +2489,6 @@ function App() {
                 )}
               </div>
 
-              {/* Notes Box */}
               {notes && (
                 <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: '16px' }}>
                   <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '4px' }}>Notes</div>
@@ -1891,7 +2496,6 @@ function App() {
                 </div>
               )}
 
-              {/* Action Buttons */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 <a
                   href={blUrl}
