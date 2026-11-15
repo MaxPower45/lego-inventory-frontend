@@ -54,6 +54,16 @@ const formatImageUrl = (url, itemNumber, isMinifig = false) => {
   return url;
 };
 
+const getBrickLinkCatalogUrl = (itemNumber, isMinifig = false) => {
+  const clean = String(itemNumber || '').trim();
+  if (!clean) return 'https://www.bricklink.com';
+  if (isMinifig) {
+    return `https://www.bricklink.com/v2/catalog/catalogitem.page?M=${encodeURIComponent(clean)}`;
+  }
+  const formatted = clean.includes('-') ? clean : `${clean}-1`;
+  return `https://www.bricklink.com/v2/catalog/catalogitem.page?S=${encodeURIComponent(formatted)}`;
+};
+
 const exportToCSV = (data, filename = 'lego_inventory.csv') => {
   if (!data || !data.length) {
     alert("No data available to export.");
@@ -110,6 +120,10 @@ function App() {
 
   const [sortField, setSortField] = useState('set_number');
   const [sortOrder, setSortOrder] = useState('asc');
+
+  // Detail Sheet & Image Zoom State
+  const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG', data: item }
+  const [zoomedImageUrl, setZoomedImageUrl] = useState(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSet, setEditingSet] = useState(null);
@@ -459,6 +473,7 @@ function App() {
     const updated = sets.filter(s => s.id !== id);
     setSets(updated);
     writeCache(CACHE_KEYS.sets, updated);
+    if (detailItem?.data?.id === id) setDetailItem(null);
 
     if (id < 0) return;
 
@@ -475,6 +490,25 @@ function App() {
       enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
       setSyncStatus('📴 Server unreachable — delete queued for sync.');
     }
+  };
+
+  const handleQuickSellSet = (setItem) => {
+    const isUsed = setItem.condition && setItem.condition.toLowerCase() === 'used';
+    const activePrice = isUsed ? (setItem.market_price_used || 0) : (setItem.market_price_new || 0);
+    setEditingSale(null);
+    setSaleFormData({
+      item_number: setItem.set_number || '',
+      item_name: setItem.set_name || '',
+      item_type: 'SET',
+      sale_date: new Date().toISOString().split('T')[0],
+      sale_price: activePrice,
+      cost_price: setItem.purchase_price || 0.0,
+      platform_fees: 0.0,
+      shipping_cost: 0.0,
+      platform: 'eBay',
+      notes: setItem.new_shelf ? `Sold from shelf: ${setItem.new_shelf}` : ''
+    });
+    setIsSaleModalOpen(true);
   };
 
   // --- MINIFIGS CRUD (WITH OFFLINE QUEUE FALLBACK) ---
@@ -553,6 +587,7 @@ function App() {
     const updated = minifigs.filter(f => f.id !== id);
     setMinifigs(updated);
     writeCache(CACHE_KEYS.minifigs, updated);
+    if (detailItem?.data?.id === id) setDetailItem(null);
 
     if (id < 0) return;
 
@@ -1140,7 +1175,11 @@ function App() {
                     const isUsed = item.condition && item.condition.toLowerCase() === 'used';
                     const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
                     return (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        onClick={() => setDetailItem({ type: 'SET', data: item })}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
                         <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.set_name}</td>
@@ -1153,9 +1192,9 @@ function App() {
                         <td>{item.purchase_dt || '-'}</td>
                         <td>{item.store || '-'}</td>
                         <td>{item.item_notes || '-'}</td>
-                        <td className="actions-cell">
-                          <button className="btn-icon" onClick={() => handleOpenModal(item)}>✏️</button>
-                          <button className="btn-icon text-danger" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
+                        <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                          <button className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
+                          <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
                         </td>
                       </tr>
                     );
@@ -1239,7 +1278,11 @@ function App() {
                     const status = item.status || 'In Collection';
                     const isForSale = status === 'For Sale';
                     return (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        onClick={() => setDetailItem({ type: 'MINIFIG', data: item })}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
                         <td><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.fig_name}</td>
@@ -1255,7 +1298,7 @@ function App() {
                         <td>{item.shelf_location || '-'}</td>
                         <td>{item.theme || '-'}</td>
                         <td>{item.notes || '-'}</td>
-                        <td className="actions-cell">
+                        <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
                           {isForSale && (
                             <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
                           )}
@@ -1502,6 +1545,311 @@ function App() {
             </div>
           )}
         </>
+      )}
+
+      {/* --- SLIDE-UP CLZ DETAIL SHEET MODAL --- */}
+      {detailItem && (() => {
+        const isSet = detailItem.type === 'SET';
+        const item = detailItem.data;
+        const itemNum = isSet ? item.set_number : item.fig_number;
+        const itemName = isSet ? item.set_name : item.fig_name;
+        const shelf = isSet ? item.new_shelf : item.shelf_location;
+        const notes = isSet ? item.item_notes : item.notes;
+        const imageUrl = formatImageUrl(item.image_url, itemNum, !isSet);
+        const blUrl = getBrickLinkCatalogUrl(itemNum, !isSet);
+        const qty = item.quantity || 1;
+        const unitCost = item.purchase_price || 0;
+        const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+        const unitMarket = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+        const totalPosCost = unitCost * qty;
+        const totalPosMarket = unitMarket * qty;
+        const gain = totalPosMarket - totalPosCost;
+        const roiPct = totalPosCost > 0 ? ((gain / totalPosCost) * 100).toFixed(1) : null;
+
+        return (
+          <div
+            className="modal-overlay"
+            onClick={() => setDetailItem(null)}
+            style={{ alignItems: 'flex-end', padding: 0 }}
+          >
+            <div
+              className="modal-content"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '560px',
+                margin: '0 auto',
+                borderRadius: '18px 18px 0 0',
+                maxHeight: '88vh',
+                overflowY: 'auto',
+                padding: '18px 20px 26px',
+                backgroundColor: '#1e293b',
+                color: '#f8fafc',
+                borderTop: '1px solid rgba(255,255,255,0.18)'
+              }}
+            >
+              {/* Drag Handle & Close */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', color: '#94a3b8' }}>
+                  {isSet ? '📦 SET DETAILS' : '🦸 MINIFIGURE DETAILS'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDetailItem(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.1)',
+                    border: 'none',
+                    color: '#f8fafc',
+                    borderRadius: '50%',
+                    width: '30px',
+                    height: '30px',
+                    fontSize: '1rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Hero Image (Tap to Zoom) & Title */}
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
+                <div
+                  onClick={() => imageUrl && setZoomedImageUrl(imageUrl)}
+                  style={{
+                    width: '112px',
+                    height: '112px',
+                    borderRadius: '12px',
+                    backgroundColor: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    cursor: imageUrl ? 'zoom-in' : 'default',
+                    position: 'relative',
+                    border: '1px solid rgba(255,255,255,0.2)'
+                  }}
+                >
+                  {imageUrl ? (
+                    <>
+                      <img
+                        src={imageUrl}
+                        alt={itemName}
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '6px' }}
+                        onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }}
+                      />
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: '4px',
+                          right: '4px',
+                          background: 'rgba(15,23,42,0.8)',
+                          color: '#fff',
+                          fontSize: '0.68rem',
+                          padding: '2px 5px',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        🔍
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ color: '#64748b', fontSize: '0.8rem' }}>No Image</span>
+                  )}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', marginBottom: '2px' }}>
+                    #{itemNum}{item.theme ? ` · ${item.theme}` : ''}
+                  </div>
+                  <h2 style={{ margin: '0 0 8px 0', fontSize: '1.15rem', lineHeight: 1.3, color: '#ffffff' }}>
+                    {itemName}
+                  </h2>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
+                      Qty: {qty}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
+                      {item.condition || 'New'}
+                    </span>
+                    {!isSet && (
+                      <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(59,130,246,0.25)', color: '#93c5fd' }}>
+                        {item.status || 'In Collection'}
+                      </span>
+                    )}
+                    {isSet && item.polybag?.toLowerCase() === 'yes' && (
+                      <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(168,85,247,0.25)', color: '#d8b4fe' }}>
+                        Polybag
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Valuation & ROI Panel */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '8px',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(15,23,42,0.65)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  marginBottom: '14px',
+                  textAlign: 'center'
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Cost ({qty > 1 ? `×${qty}` : 'Each'})</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', marginTop: '2px' }}>
+                    ${totalPosCost.toFixed(2)}
+                  </div>
+                  {qty > 1 && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>${unitCost.toFixed(2)} ea</div>}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Market ({item.condition || 'New'})</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#60a5fa', marginTop: '2px' }}>
+                    ${totalPosMarket.toFixed(2)}
+                  </div>
+                  {qty > 1 && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>${unitMarket.toFixed(2)} ea</div>}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Gain / ROI</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: gain >= 0 ? '#4ade80' : '#f87171', marginTop: '2px' }}>
+                    {gain >= 0 ? '+' : ''}${gain.toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: gain >= 0 ? '#4ade80' : '#f87171' }}>
+                    {roiPct !== null ? `${gain >= 0 ? '+' : ''}${roiPct}%` : 'N/A'}
+                  </div>
+                </div>
+              </div>
+
+              {/* BrickLink New vs Used Price Guide */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  fontSize: '0.82rem',
+                  color: '#cbd5e1',
+                  marginBottom: '14px'
+                }}
+              >
+                <span>BrickLink Avg New: <strong style={{ color: '#fff' }}>${(item.market_price_new || 0).toFixed(2)}</strong></span>
+                <span>Avg Used: <strong style={{ color: '#fff' }}>${(item.market_price_used || 0).toFixed(2)}</strong></span>
+              </div>
+
+              {/* Metadata Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem', marginBottom: '14px' }}>
+                <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Shelf / Storage</div>
+                  <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px' }}>{shelf || 'Unassigned'}</div>
+                </div>
+                {isSet ? (
+                  <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Store / Source</div>
+                    <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px' }}>{item.store || '—'}</div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Theme</div>
+                    <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px' }}>{item.theme || '—'}</div>
+                  </div>
+                )}
+                {isSet && (
+                  <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Purchase Date</div>
+                    <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px' }}>{item.purchase_dt || '—'}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes Box */}
+              {notes && (
+                <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '4px' }}>Notes</div>
+                  <div style={{ fontSize: '0.88rem', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{notes}</div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <a
+                  href={blUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary"
+                  style={{ flex: 1, textAlign: 'center', textDecoration: 'none', minWidth: '130px' }}
+                >
+                  🔗 BrickLink
+                </a>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: 1, minWidth: '100px' }}
+                  onClick={() => {
+                    const target = item;
+                    setDetailItem(null);
+                    if (isSet) handleOpenModal(target);
+                    else handleOpenFigModal(target);
+                  }}
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  style={{ flex: 1, minWidth: '100px' }}
+                  onClick={() => {
+                    const target = item;
+                    setDetailItem(null);
+                    if (isSet) handleQuickSellSet(target);
+                    else handleQuickSellFig(target);
+                  }}
+                >
+                  💰 Sell
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- FULL-SCREEN IMAGE ZOOM LIGHTBOX --- */}
+      {zoomedImageUrl && (
+        <div
+          className="modal-overlay"
+          onClick={() => setZoomedImageUrl(null)}
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.92)',
+            zIndex: 2000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            cursor: 'zoom-out'
+          }}
+        >
+          <img
+            src={zoomedImageUrl}
+            alt="Zoomed LEGO item"
+            style={{
+              maxWidth: '95vw',
+              maxHeight: '80vh',
+              objectFit: 'contain',
+              borderRadius: '12px',
+              backgroundColor: '#ffffff',
+              padding: '12px'
+            }}
+          />
+          <div style={{ color: '#cbd5e1', fontSize: '0.85rem', marginTop: '12px' }}>
+            Tap anywhere to close
+          </div>
+        </div>
       )}
 
       {/* --- ADD / EDIT SET MODAL --- */}
