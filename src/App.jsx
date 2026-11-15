@@ -934,14 +934,18 @@ function App() {
     }
   };
 
-  // --- QUICK BOX UPDATE DIRECTLY FROM SLIDE-UP DETAIL SHEET ---
-  const handleQuickUpdateSetBox = async (setItem, nextHasBox) => {
-    const { cleanNotes } = parseSetBoxInfo(setItem);
+  // --- QUICK CONDITION & BOX UPDATES DIRECTLY FROM SLIDE-UP DETAIL SHEET ---
+  const handleQuickUpdateSetFields = async (setItem, updates, statusLabel) => {
+    const { hasBox: currentBox, cleanNotes } = parseSetBoxInfo(setItem);
+    const nextCondition = updates.condition !== undefined ? updates.condition : (setItem.condition || 'New');
+    const nextHasBox = updates.has_box !== undefined ? updates.has_box : currentBox;
     const nextNotes = buildNotesWithBox(cleanNotes, nextHasBox);
+
     const updatedItem = {
       ...setItem,
-      item_notes: nextNotes,
+      condition: nextCondition,
       has_box: nextHasBox,
+      item_notes: nextNotes,
       _pendingSync: !navigator.onLine
     };
 
@@ -956,7 +960,7 @@ function App() {
       set_name: updatedItem.set_name,
       theme: updatedItem.theme || null,
       quantity: updatedItem.quantity || 1,
-      condition: updatedItem.condition || 'New',
+      condition: nextCondition,
       purchase_price: updatedItem.purchase_price || 0.0,
       purchase_dt: updatedItem.purchase_dt || null,
       new_shelf: updatedItem.new_shelf || null,
@@ -972,9 +976,9 @@ function App() {
         endpoint: `/sets/${setItem.id}`,
         method: 'PUT',
         body: payload,
-        label: `Update box status for Set ${setItem.set_number}`
+        label: `${statusLabel} for Set ${setItem.set_number}`
       });
-      setSyncStatus(`📴 Saved Box: ${nextHasBox || 'Cleared'} offline (will sync when online).`);
+      setSyncStatus(`📴 Saved ${statusLabel} offline (will sync when online).`);
       return;
     }
 
@@ -994,9 +998,70 @@ function App() {
         endpoint: `/sets/${setItem.id}`,
         method: 'PUT',
         body: payload,
-        label: `Update box status for Set ${setItem.set_number}`
+        label: `${statusLabel} for Set ${setItem.set_number}`
       });
-      setSyncStatus(`📴 Server unreachable — queued Box update offline.`);
+      setSyncStatus(`📴 Server unreachable — queued ${statusLabel} offline.`);
+    }
+  };
+
+  const handleQuickUpdateFigCondition = async (figItem, nextCondition) => {
+    if ((figItem.condition || 'New') === nextCondition) return;
+    const updatedItem = {
+      ...figItem,
+      condition: nextCondition,
+      _pendingSync: !navigator.onLine
+    };
+
+    const updatedFigs = minifigs.map(f => f.id === figItem.id ? updatedItem : f);
+    setMinifigs(updatedFigs);
+    writeCache(CACHE_KEYS.minifigs, updatedFigs);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+    setDetailItem({ type: 'MINIFIG', data: updatedItem });
+
+    const payload = {
+      fig_number: updatedItem.fig_number,
+      fig_name: updatedItem.fig_name,
+      theme: updatedItem.theme || null,
+      quantity: updatedItem.quantity || 1,
+      condition: nextCondition,
+      purchase_price: updatedItem.purchase_price || 0.0,
+      shelf_location: updatedItem.shelf_location || null,
+      notes: updatedItem.notes || null,
+      status: updatedItem.status || 'In Collection'
+    };
+
+    if (figItem.id < 0) return;
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({
+        endpoint: `/minifigs/${figItem.id}`,
+        method: 'PUT',
+        body: payload,
+        label: `Condition: ${nextCondition} for Minifig ${figItem.fig_number}`
+      });
+      setSyncStatus(`📴 Saved Condition: ${nextCondition} offline.`);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/minifigs/${figItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        fetchMinifigs();
+      } else {
+        throw new Error("Server error");
+      }
+    } catch (err) {
+      enqueueOfflineAction({
+        endpoint: `/minifigs/${figItem.id}`,
+        method: 'PUT',
+        body: payload,
+        label: `Condition: ${nextCondition} for Minifig ${figItem.fig_number}`
+      });
+      setSyncStatus(`📴 Server unreachable — queued Condition update offline.`);
     }
   };
 
@@ -2469,7 +2534,8 @@ function App() {
         const blUrl = getBrickLinkCatalogUrl(itemNum, !isSet);
         const qty = item.quantity || 1;
         const unitCost = item.purchase_price || 0;
-        const isUsed = item.condition && item.condition.toLowerCase() === 'used';
+        const currentCondition = item.condition || 'New';
+        const isUsed = currentCondition.toLowerCase() === 'used';
         const unitMarket = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
         const totalPosCost = unitCost * qty;
         const totalPosMarket = unitMarket * qty;
@@ -2577,8 +2643,16 @@ function App() {
                     <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
                       Qty: {qty}
                     </span>
-                    <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
-                      {item.condition || 'New'}
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '3px 8px',
+                        borderRadius: '999px',
+                        backgroundColor: isUsed ? 'rgba(245,158,11,0.22)' : 'rgba(59,130,246,0.25)',
+                        color: isUsed ? '#fcd34d' : '#93c5fd'
+                      }}
+                    >
+                      {currentCondition}
                     </span>
                     {isSet && hasBox && (
                       <span
@@ -2607,6 +2681,81 @@ function App() {
                 </div>
               </div>
 
+              {/* --- ONE-TAP CONDITION TOGGLE (NEW / USED) --- */}
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.14)',
+                  marginBottom: isSet ? '10px' : '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap'
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Condition</div>
+                  <div style={{ fontSize: '0.85rem', color: '#f8fafc', fontWeight: 600 }}>
+                    {isUsed ? 'Used (Opened / Built)' : 'New (Sealed)'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isUsed) return;
+                      if (isSet) {
+                        handleQuickUpdateSetFields(item, { condition: 'New' }, 'Condition: New');
+                      } else {
+                        handleQuickUpdateFigCondition(item, 'New');
+                      }
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: !isUsed ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.2)',
+                      backgroundColor: !isUsed ? 'rgba(59,130,246,0.28)' : 'rgba(15,23,42,0.5)',
+                      color: !isUsed ? '#93c5fd' : '#e2e8f0',
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✨ New
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isUsed) return;
+                      if (isSet) {
+                        handleQuickUpdateSetFields(
+                          item,
+                          { condition: 'Used', has_box: hasBox || 'Yes' },
+                          'Condition: Used'
+                        );
+                      } else {
+                        handleQuickUpdateFigCondition(item, 'Used');
+                      }
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: isUsed ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.2)',
+                      backgroundColor: isUsed ? 'rgba(245,158,11,0.28)' : 'rgba(15,23,42,0.5)',
+                      color: isUsed ? '#fcd34d' : '#e2e8f0',
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🧱 Used
+                  </button>
+                </div>
+              </div>
+
               {/* --- ONE-TAP ORIGINAL BOX TOGGLE FOR SETS --- */}
               {isSet && (
                 <div
@@ -2630,7 +2779,7 @@ function App() {
                         ? 'Yes — Box Included'
                         : hasBox === 'No'
                         ? 'No — Loose / No Box'
-                        : item.condition === 'New'
+                        : currentCondition === 'New'
                         ? 'Yes (Sealed Default)'
                         : 'Not Set Yet'}
                     </div>
@@ -2638,7 +2787,13 @@ function App() {
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button
                       type="button"
-                      onClick={() => handleQuickUpdateSetBox(item, hasBox === 'Yes' ? '' : 'Yes')}
+                      onClick={() =>
+                        handleQuickUpdateSetFields(
+                          item,
+                          { has_box: hasBox === 'Yes' ? '' : 'Yes' },
+                          `Box: ${hasBox === 'Yes' ? 'Cleared' : 'Yes'}`
+                        )
+                      }
                       style={{
                         padding: '6px 12px',
                         borderRadius: '8px',
@@ -2654,7 +2809,13 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleQuickUpdateSetBox(item, hasBox === 'No' ? '' : 'No')}
+                      onClick={() =>
+                        handleQuickUpdateSetFields(
+                          item,
+                          { has_box: hasBox === 'No' ? '' : 'No' },
+                          `Box: ${hasBox === 'No' ? 'Cleared' : 'No'}`
+                        )
+                      }
                       style={{
                         padding: '6px 12px',
                         borderRadius: '8px',
@@ -2693,7 +2854,7 @@ function App() {
                   {qty > 1 && <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>${unitCost.toFixed(2)} ea</div>}
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Market ({item.condition || 'New'})</div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Market ({currentCondition})</div>
                   <div style={{ fontSize: '1rem', fontWeight: 700, color: '#60a5fa', marginTop: '2px' }}>
                     ${totalPosMarket.toFixed(2)}
                   </div>
