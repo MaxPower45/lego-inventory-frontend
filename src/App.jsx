@@ -1994,7 +1994,6 @@ function App() {
                     <th onClick={() => handleSort('set_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('set_name')}</th>
                     <th onClick={() => handleSort('quantity')} style={{ cursor: 'pointer' }}>Qty{renderSortArrow('quantity')}</th>
                     <th onClick={() => handleSort('condition')} style={{ cursor: 'pointer' }}>Cond.{renderSortArrow('condition')}</th>
-                    <th onClick={() => handleSort('has_box')} style={{ cursor: 'pointer' }}>Box{renderSortArrow('has_box')}</th>
                     <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
                     <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
                     <th onClick={() => handleSort('new_shelf')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('new_shelf')}</th>
@@ -2002,6 +2001,7 @@ function App() {
                     <th onClick={() => handleSort('purchase_dt')} style={{ cursor: 'pointer' }}>Purchased{renderSortArrow('purchase_dt')}</th>
                     <th onClick={() => handleSort('store')} style={{ cursor: 'pointer' }}>Store{renderSortArrow('store')}</th>
                     <th>Notes</th>
+                    <th onClick={() => handleSort('has_box')} style={{ cursor: 'pointer' }}>Box{renderSortArrow('has_box')}</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -2018,20 +2018,20 @@ function App() {
                         onClick={() => setDetailItem({ type: 'SET', data: item })}
                         style={{ cursor: 'pointer' }}
                       >
-                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
-                        <td>{item.set_name}</td>
-                        <td>{item.quantity}</td>
-                        <td>{item.condition || 'N/A'}</td>
-                        <td>{boxDisplay}</td>
-                        <td>${(item.purchase_price || 0).toFixed(2)}</td>
-                        <td>${activeMarketPrice.toFixed(2)}</td>
-                        <td>{item.new_shelf || '-'}</td>
-                        <td>{item.theme || '-'}</td>
-                        <td>{item.purchase_dt || '-'}</td>
-                        <td>{item.store || '-'}</td>
-                        <td>{cleanNotes || '-'}</td>
-                        <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                        <td data-label="Image" className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td data-label="Set #"><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
+                        <td data-label="Name">{item.set_name}</td>
+                        <td data-label="Qty">{item.quantity}</td>
+                        <td data-label="Cond.">{item.condition || 'N/A'}</td>
+                        <td data-label="Paid">${(item.purchase_price || 0).toFixed(2)}</td>
+                        <td data-label="Market">${activeMarketPrice.toFixed(2)}</td>
+                        <td data-label="Shelf">{item.new_shelf || '-'}</td>
+                        <td data-label="Theme">{item.theme || '-'}</td>
+                        <td data-label="Purchased">{item.purchase_dt || '-'}</td>
+                        <td data-label="Store">{item.store || '-'}</td>
+                        <td data-label="Notes">{cleanNotes || '-'}</td>
+                        <td data-label="Box">{boxDisplay}</td>
+                        <td data-label="Actions" className="actions-cell" onClick={(e) => e.stopPropagation()}>
                           <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellSet(item)}>💰</button>
                           <button className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
@@ -2124,22 +2124,22 @@ function App() {
                         onClick={() => setDetailItem({ type: 'MINIFIG', data: item })}
                         style={{ cursor: 'pointer' }}
                       >
-                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
-                        <td>{item.fig_name}</td>
-                        <td>
+                        <td data-label="Image" className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.fig_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td data-label="Fig #"><strong>{item.fig_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
+                        <td data-label="Name">{item.fig_name}</td>
+                        <td data-label="Status">
                           <span className={`status-badge ${isForSale ? 'badge-sale' : status === 'Draft / Unsorted' ? 'badge-draft' : 'badge-collection'}`}>
                             {status}
                           </span>
                         </td>
-                        <td>{item.quantity}</td>
-                        <td>{item.condition || 'N/A'}</td>
-                        <td>${(item.purchase_price || 0).toFixed(2)}</td>
-                        <td>${activeMarketPrice.toFixed(2)}</td>
-                        <td>{item.shelf_location || '-'}</td>
-                        <td>{item.theme || '-'}</td>
-                        <td>{item.notes || '-'}</td>
-                        <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                        <td data-label="Qty">{item.quantity}</td>
+                        <td data-label="Cond.">{item.condition || 'N/A'}</td>
+                        <td data-label="Paid">${(item.purchase_price || 0).toFixed(2)}</td>
+                        <td data-label="Market">${activeMarketPrice.toFixed(2)}</td>
+                        <td data-label="Shelf">{item.shelf_location || '-'}</td>
+                        <td data-label="Theme">{item.theme || '-'}</td>
+                        <td data-label="Notes">{item.notes || '-'}</td>
+                        <td data-label="Actions" className="actions-cell" onClick={(e) => e.stopPropagation()}>
                           {isForSale && (
                             <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
                           )}
@@ -2304,15 +2304,15 @@ function App() {
                     const imageUrl = formatImageUrl(item.image_url, item.item_number, item.item_type === 'MINIFIG');
                     return (
                       <tr key={item.id}>
-                        <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
-                        <td>{item.item_name}</td>
-                        <td>{item.item_type}</td>
-                        <td>{item.priority}</td>
-                        <td>${(item.target_price || 0).toFixed(2)}</td>
-                        <td>${(item.market_price_new || 0).toFixed(2)}</td>
-                        <td>{item.notes || '-'}</td>
-                        <td className="actions-cell">
+                        <td data-label="Image" className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
+                        <td data-label="Item #"><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
+                        <td data-label="Name">{item.item_name}</td>
+                        <td data-label="Type">{item.item_type}</td>
+                        <td data-label="Priority">{item.priority}</td>
+                        <td data-label="Target">${(item.target_price || 0).toFixed(2)}</td>
+                        <td data-label="Market">${(item.market_price_new || 0).toFixed(2)}</td>
+                        <td data-label="Notes">{item.notes || '-'}</td>
+                        <td data-label="Actions" className="actions-cell">
                           <button className="btn-icon" onClick={() => handleOpenWishModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" onClick={() => handleDeleteWish(item.id)}>🗑️</button>
                         </td>
@@ -2367,17 +2367,17 @@ function App() {
                 <tbody>
                   {sortedSales.map((item) => (
                     <tr key={item.id}>
-                      <td><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
-                      <td>{item.item_name}</td>
-                      <td>{item.sale_date}</td>
-                      <td>${(item.sale_price || 0).toFixed(2)}</td>
-                      <td>${(item.cost_price || 0).toFixed(2)}</td>
-                      <td className={item.net_profit >= 0 ? 'text-success' : 'text-danger'}>
+                      <td data-label="Item #"><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
+                      <td data-label="Name">{item.item_name}</td>
+                      <td data-label="Date">{item.sale_date}</td>
+                      <td data-label="Sold">${(item.sale_price || 0).toFixed(2)}</td>
+                      <td data-label="Cost">${(item.cost_price || 0).toFixed(2)}</td>
+                      <td data-label="Profit" className={item.net_profit >= 0 ? 'text-success' : 'text-danger'}>
                         ${(item.net_profit || 0).toFixed(2)}
                       </td>
-                      <td>{item.platform}</td>
-                      <td>{item.notes || '-'}</td>
-                      <td className="actions-cell">
+                      <td data-label="Platform">{item.platform}</td>
+                      <td data-label="Notes">{item.notes || '-'}</td>
+                      <td data-label="Actions" className="actions-cell">
                         <button className="btn-icon" onClick={() => handleOpenSaleModal(item)}>✏️</button>
                         <button className="btn-icon text-danger" onClick={() => handleDeleteSale(item.id)}>🗑️</button>
                       </td>
