@@ -150,6 +150,8 @@ function App() {
 
   const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
   const [editingSale, setEditingSale] = useState(null);
+  const [saleSourceItem, setSaleSourceItem] = useState(null); // { type: 'SET' | 'MINIFIG', item: obj }
+  const [deductFromInventory, setDeductFromInventory] = useState(false);
   const [saleFormData, setSaleFormData] = useState({
     item_number: '', item_name: '', item_type: 'SET', sale_date: '',
     sale_price: 0.0, cost_price: 0.0, platform_fees: 0.0, shipping_cost: 0.0, platform: 'eBay', notes: ''
@@ -496,6 +498,8 @@ function App() {
     const isUsed = setItem.condition && setItem.condition.toLowerCase() === 'used';
     const activePrice = isUsed ? (setItem.market_price_used || 0) : (setItem.market_price_new || 0);
     setEditingSale(null);
+    setSaleSourceItem({ type: 'SET', item: setItem });
+    setDeductFromInventory(true);
     setSaleFormData({
       item_number: setItem.set_number || '',
       item_name: setItem.set_name || '',
@@ -608,6 +612,8 @@ function App() {
 
   const handleQuickSellFig = (figItem) => {
     setEditingSale(null);
+    setSaleSourceItem({ type: 'MINIFIG', item: figItem });
+    setDeductFromInventory(true);
     setSaleFormData({
       item_number: figItem.fig_number || '',
       item_name: figItem.fig_name || '',
@@ -767,8 +773,10 @@ function App() {
     }
   };
 
-  // --- SALES CRUD (WITH OFFLINE QUEUE FALLBACK) ---
+  // --- SALES CRUD (WITH AUTO-INVENTORY DEDUCTION & OFFLINE QUEUE FALLBACK) ---
   const handleOpenSaleModal = (saleItem = null) => {
+    setSaleSourceItem(null);
+    setDeductFromInventory(false);
     if (saleItem) {
       setEditingSale(saleItem);
       setSaleFormData({
@@ -785,6 +793,106 @@ function App() {
       });
     }
     setIsSaleModalOpen(true);
+  };
+
+  const applyInventoryDeduction = async () => {
+    if (!deductFromInventory || !saleSourceItem) return '';
+    const { type, item } = saleSourceItem;
+    const currentQty = item.quantity || 1;
+    const isSet = type === 'SET';
+    const basePath = isSet ? '/sets' : '/minifigs';
+
+    if (currentQty > 1) {
+      const newQty = currentQty - 1;
+      const updatePayload = isSet
+        ? {
+            set_number: item.set_number,
+            set_name: item.set_name,
+            theme: item.theme || null,
+            quantity: newQty,
+            condition: item.condition || 'New',
+            purchase_price: item.purchase_price || 0.0,
+            purchase_dt: item.purchase_dt || null,
+            new_shelf: item.new_shelf || null,
+            item_notes: item.item_notes || null,
+            store: item.store || null,
+            polybag: item.polybag || 'No'
+          }
+        : {
+            fig_number: item.fig_number,
+            fig_name: item.fig_name,
+            theme: item.theme || null,
+            quantity: newQty,
+            condition: item.condition || 'New',
+            purchase_price: item.purchase_price || 0.0,
+            shelf_location: item.shelf_location || null,
+            notes: item.notes || null,
+            status: item.status || 'In Collection'
+          };
+
+      if (isSet) {
+        const updatedSets = sets.map(s => s.id === item.id ? { ...s, quantity: newQty } : s);
+        setSets(updatedSets);
+        writeCache(CACHE_KEYS.sets, updatedSets);
+      } else {
+        const updatedFigs = minifigs.map(f => f.id === item.id ? { ...f, quantity: newQty } : f);
+        setMinifigs(updatedFigs);
+        writeCache(CACHE_KEYS.minifigs, updatedFigs);
+      }
+
+      if (item.id > 0) {
+        if (!navigator.onLine) {
+          enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'PUT', body: updatePayload, label: `Decrement ${type} #${item.id}` });
+        } else {
+          try {
+            const res = await fetch(`${API_BASE}${basePath}/${item.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updatePayload)
+            });
+            if (res.ok) {
+              if (isSet) fetchSets();
+              else fetchMinifigs();
+            } else {
+              throw new Error("Server error");
+            }
+          } catch (err) {
+            enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'PUT', body: updatePayload, label: `Decrement ${type} #${item.id}` });
+          }
+        }
+      }
+      return ` (Qty reduced ${currentQty} → ${newQty})`;
+    } else {
+      // Quantity is 1 — remove item from active inventory
+      if (isSet) {
+        const updatedSets = sets.filter(s => s.id !== item.id);
+        setSets(updatedSets);
+        writeCache(CACHE_KEYS.sets, updatedSets);
+      } else {
+        const updatedFigs = minifigs.filter(f => f.id !== item.id);
+        setMinifigs(updatedFigs);
+        writeCache(CACHE_KEYS.minifigs, updatedFigs);
+      }
+
+      if (item.id > 0) {
+        if (!navigator.onLine) {
+          enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'DELETE', label: `Remove sold ${type} #${item.id}` });
+        } else {
+          try {
+            const res = await fetch(`${API_BASE}${basePath}/${item.id}`, { method: 'DELETE' });
+            if (res.ok) {
+              if (isSet) fetchSets();
+              else fetchMinifigs();
+            } else {
+              throw new Error("Server error");
+            }
+          } catch (err) {
+            enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'DELETE', label: `Remove sold ${type} #${item.id}` });
+          }
+        }
+      }
+      return ' (Removed from active inventory)';
+    }
   };
 
   const applySaleLocally = () => {
@@ -812,11 +920,15 @@ function App() {
     const endpoint = (editingSale && !isTempOfflineItem) ? `/sales/${editingSale.id}` : `/add-sale`;
     const method = (editingSale && !isTempOfflineItem) ? 'PUT' : 'POST';
 
+    const deductNote = await applyInventoryDeduction();
+    setSaleSourceItem(null);
+    setDeductFromInventory(false);
+
     if (!navigator.onLine) {
       applySaleLocally();
       enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
       setIsSaleModalOpen(false);
-      setSyncStatus(`📴 Logged sale for ${saleFormData.item_number} offline (will sync when back online).`);
+      setSyncStatus(`📴 Logged sale for ${saleFormData.item_number} offline${deductNote}.`);
       return;
     }
 
@@ -829,6 +941,9 @@ function App() {
       if (res.ok) {
         setIsSaleModalOpen(false);
         fetchSales();
+        if (deductNote) {
+          setSyncStatus(`✅ Logged sale for ${saleFormData.item_number}${deductNote}`);
+        }
       } else {
         throw new Error("Server returned error");
       }
@@ -836,7 +951,7 @@ function App() {
       applySaleLocally();
       enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
       setIsSaleModalOpen(false);
-      setSyncStatus(`📴 Server unreachable — saved Sale ${saleFormData.item_number} to offline queue.`);
+      setSyncStatus(`📴 Server unreachable — saved Sale ${saleFormData.item_number} to offline queue${deductNote}.`);
     }
   };
 
@@ -1193,6 +1308,7 @@ function App() {
                         <td>{item.store || '-'}</td>
                         <td>{item.item_notes || '-'}</td>
                         <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                          <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellSet(item)}>💰</button>
                           <button className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
                           <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
                         </td>
@@ -2084,7 +2200,7 @@ function App() {
         </div>
       )}
 
-      {/* --- SALE MODAL --- */}
+      {/* --- SALE MODAL (WITH AUTO-INVENTORY DEDUCTION) --- */}
       {isSaleModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -2133,12 +2249,51 @@ function App() {
                   <input type="number" step="0.01" value={saleFormData.shipping_cost} onChange={(e) => setSaleFormData({...saleFormData, shipping_cost: parseFloat(e.target.value) || 0})} />
                 </div>
               </div>
+
+              {saleSourceItem && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(59,130,246,0.14)',
+                    border: '1px solid rgba(59,130,246,0.35)',
+                    marginBottom: '12px'
+                  }}
+                >
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={deductFromInventory}
+                      onChange={(e) => setDeductFromInventory(e.target.checked)}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    <span>
+                      Auto-deduct 1 from inventory (
+                      {(saleSourceItem.item.quantity || 1) > 1
+                        ? `Qty ${saleSourceItem.item.quantity} → ${(saleSourceItem.item.quantity || 1) - 1}`
+                        : 'Qty 1 → Remove item'}
+                      )
+                    </span>
+                  </label>
+                </div>
+              )}
+
               <div className="form-group">
                 <label>Notes</label>
                 <textarea value={saleFormData.notes} onChange={(e) => setSaleFormData({...saleFormData, notes: e.target.value})} />
               </div>
               <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsSaleModalOpen(false)}>Cancel</button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setIsSaleModalOpen(false);
+                    setSaleSourceItem(null);
+                    setDeductFromInventory(false);
+                  }}
+                >
+                  Cancel
+                </button>
                 <button type="submit" className="btn btn-success">Save Sale</button>
               </div>
             </form>
