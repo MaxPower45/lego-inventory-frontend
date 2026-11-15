@@ -1274,31 +1274,31 @@ function App() {
 
       {/* TAB 3: DASHBOARD / COLLECTION BREAKDOWN */}
       {activeTab === 'dashboard' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', color: '#f8fafc' }}>
           <section className="stats-row">
-            <div className="stat-card">
+            <div className="stat-card" style={{ color: '#f8fafc' }}>
               <h3>Total Portfolio Value</h3>
               <p>${portfolioMarket.toFixed(2)}</p>
-              <small style={{ opacity: 0.75 }}>{allSetsQty} sets · {allFigsQty} minifigs</small>
+              <small style={{ color: '#cbd5e1' }}>{allSetsQty} sets · {allFigsQty} minifigs</small>
             </div>
-            <div className="stat-card">
+            <div className="stat-card" style={{ color: '#f8fafc' }}>
               <h3>Total Invested</h3>
               <p>${portfolioCost.toFixed(2)}</p>
-              <small style={{ opacity: 0.75 }}>Sets: ${allSetsCost.toFixed(0)} · Figs: ${allFigsCost.toFixed(0)}</small>
+              <small style={{ color: '#cbd5e1' }}>Sets: ${allSetsCost.toFixed(0)} · Figs: ${allFigsCost.toFixed(0)}</small>
             </div>
-            <div className="stat-card">
+            <div className="stat-card" style={{ color: '#f8fafc' }}>
               <h3>Unrealized Gain</h3>
               <p className={unrealizedGain >= 0 ? 'text-success' : 'text-danger'}>
                 {unrealizedGain >= 0 ? '+' : ''}${unrealizedGain.toFixed(2)} ({portfolioROI}%)
               </p>
-              <small style={{ opacity: 0.75 }}>Realized Sales Profit: ${allSalesProfit.toFixed(2)}</small>
+              <small style={{ color: '#cbd5e1' }}>Realized Sales Profit: ${allSalesProfit.toFixed(2)}</small>
             </div>
           </section>
 
-          <div className="stat-card" style={{ textAlign: 'left' }}>
-            <h3 style={{ marginBottom: '12px' }}>🏷️ Breakdown by Theme (Tap to Filter Sets)</h3>
+          <div className="stat-card" style={{ textAlign: 'left', color: '#f8fafc' }}>
+            <h3 style={{ marginBottom: '12px', color: '#f8fafc' }}>🏷️ Breakdown by Theme (Tap to Filter Sets)</h3>
             {themeBreakdown.length === 0 ? (
-              <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>No items in collection yet.</p>
+              <p style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>No items in collection yet.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {themeBreakdown.map((row) => {
@@ -1319,22 +1319,24 @@ function App() {
                       style={{
                         padding: '10px 12px',
                         borderRadius: '8px',
-                        border: '1px solid rgba(128,128,128,0.25)',
+                        backgroundColor: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#f8fafc',
                         cursor: 'pointer'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <strong>{row.theme}</strong>
-                        <strong>${row.market.toFixed(2)}</strong>
+                        <strong style={{ color: '#ffffff' }}>{row.theme}</strong>
+                        <strong style={{ color: '#60a5fa' }}>${row.market.toFixed(2)}</strong>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', opacity: 0.8, marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#cbd5e1', marginBottom: '6px' }}>
                         <span>{row.setsQty} sets · {row.figsQty} minifigs</span>
                         <span>
                           Cost: ${row.cost.toFixed(2)} ({gain >= 0 ? '+' : ''}${gain.toFixed(0)})
                         </span>
                       </div>
-                      <div style={{ height: '6px', borderRadius: '4px', backgroundColor: 'rgba(128,128,128,0.2)', overflow: 'hidden' }}>
-                        <div style={{ width: `${sharePct}%`, height: '100%', backgroundColor: '#2563eb' }} />
+                      <div style={{ height: '6px', borderRadius: '4px', backgroundColor: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
+                        <div style={{ width: `${sharePct}%`, height: '100%', backgroundColor: '#3b82f6' }} />
                       </div>
                     </div>
                   );
@@ -1343,10 +1345,10 @@ function App() {
             )}
           </div>
 
-          <div className="stat-card" style={{ textAlign: 'left' }}>
-            <h3 style={{ marginBottom: '12px' }}>🗄️ Breakdown by Shelf / Storage Location</h3>
+          <div className="stat-card" style={{ textAlign: 'left', color: '#f8fafc' }}>
+            <h3 style={{ marginBottom: '12px', color: '#f8fafc' }}>🗄️ Breakdown by Shelf / Storage Location</h3>
             {shelfBreakdown.length === 0 ? (
-              <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>No shelf locations recorded yet.</p>
+              <p style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>No shelf locations recorded yet.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {shelfBreakdown.map((row) => (
@@ -1358,14 +1360,16 @@ function App() {
                       alignItems: 'center',
                       padding: '8px 12px',
                       borderRadius: '8px',
-                      border: '1px solid rgba(128,128,128,0.2)'
+                      backgroundColor: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#f8fafc'
                     }}
                   >
                     <div>
-                      <strong>{row.shelf}</strong>
-                      <div style={{ fontSize: '0.8rem', opacity: 0.75 }}>{row.count} items</div>
+                      <strong style={{ color: '#ffffff' }}>{row.shelf}</strong>
+                      <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>{row.count} items</div>
                     </div>
-                    <strong>${row.market.toFixed(2)}</strong>
+                    <strong style={{ color: '#60a5fa' }}>${row.market.toFixed(2)}</strong>
                   </div>
                 ))}
               </div>
