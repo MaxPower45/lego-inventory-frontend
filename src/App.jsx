@@ -460,7 +460,7 @@ function App() {
     setSets(updated);
     writeCache(CACHE_KEYS.sets, updated);
 
-    if (id < 0) return; // Was never uploaded to server
+    if (id < 0) return;
 
     if (!navigator.onLine) {
       enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
@@ -929,6 +929,73 @@ function App() {
   const totalSalesCost = filteredSales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
   const overallROI = totalSalesCost > 0 ? ((totalNetProfit / totalSalesCost) * 100).toFixed(1) : '0.0';
 
+  // --- DASHBOARD AGGREGATIONS (ALL COLLECTION DATA) ---
+  const allSetsQty = sets.reduce((acc, s) => acc + (s.quantity || 1), 0);
+  const allSetsCost = sets.reduce((acc, s) => acc + ((s.purchase_price || 0) * (s.quantity || 1)), 0);
+  const allSetsMarket = sets.reduce((acc, s) => {
+    const isUsed = s.condition && s.condition.toLowerCase() === 'used';
+    const price = isUsed ? (s.market_price_used || 0) : (s.market_price_new || 0);
+    return acc + (price * (s.quantity || 1));
+  }, 0);
+
+  const allFigsQty = minifigs.reduce((acc, f) => acc + (f.quantity || 1), 0);
+  const allFigsCost = minifigs.reduce((acc, f) => acc + ((f.purchase_price || 0) * (f.quantity || 1)), 0);
+  const allFigsMarket = minifigs.reduce((acc, f) => {
+    const isUsed = f.condition && f.condition.toLowerCase() === 'used';
+    const price = isUsed ? (f.market_price_used || 0) : (f.market_price_new || 0);
+    return acc + (price * (f.quantity || 1));
+  }, 0);
+
+  const portfolioCost = allSetsCost + allFigsCost;
+  const portfolioMarket = allSetsMarket + allFigsMarket;
+  const unrealizedGain = portfolioMarket - portfolioCost;
+  const portfolioROI = portfolioCost > 0 ? ((unrealizedGain / portfolioCost) * 100).toFixed(1) : '0.0';
+  const allSalesProfit = sales.reduce((acc, s) => acc + (s.net_profit || 0), 0);
+
+  const themeBreakdownMap = {};
+  sets.forEach(s => {
+    const t = s.theme && s.theme.trim() ? s.theme.trim() : 'Uncategorized';
+    const qty = s.quantity || 1;
+    const isUsed = s.condition && s.condition.toLowerCase() === 'used';
+    const price = isUsed ? (s.market_price_used || 0) : (s.market_price_new || 0);
+    if (!themeBreakdownMap[t]) themeBreakdownMap[t] = { theme: t, setsQty: 0, figsQty: 0, cost: 0, market: 0 };
+    themeBreakdownMap[t].setsQty += qty;
+    themeBreakdownMap[t].cost += (s.purchase_price || 0) * qty;
+    themeBreakdownMap[t].market += price * qty;
+  });
+  minifigs.forEach(f => {
+    const t = f.theme && f.theme.trim() ? f.theme.trim() : 'Uncategorized';
+    const qty = f.quantity || 1;
+    const isUsed = f.condition && f.condition.toLowerCase() === 'used';
+    const price = isUsed ? (f.market_price_used || 0) : (f.market_price_new || 0);
+    if (!themeBreakdownMap[t]) themeBreakdownMap[t] = { theme: t, setsQty: 0, figsQty: 0, cost: 0, market: 0 };
+    themeBreakdownMap[t].figsQty += qty;
+    themeBreakdownMap[t].cost += (f.purchase_price || 0) * qty;
+    themeBreakdownMap[t].market += price * qty;
+  });
+  const themeBreakdown = Object.values(themeBreakdownMap).sort((a, b) => b.market - a.market || (b.setsQty + b.figsQty) - (a.setsQty + a.figsQty));
+
+  const shelfBreakdownMap = {};
+  sets.forEach(s => {
+    const sh = s.new_shelf && s.new_shelf.trim() ? s.new_shelf.trim() : 'Unassigned';
+    const qty = s.quantity || 1;
+    const isUsed = s.condition && s.condition.toLowerCase() === 'used';
+    const price = isUsed ? (s.market_price_used || 0) : (s.market_price_new || 0);
+    if (!shelfBreakdownMap[sh]) shelfBreakdownMap[sh] = { shelf: sh, count: 0, market: 0 };
+    shelfBreakdownMap[sh].count += qty;
+    shelfBreakdownMap[sh].market += price * qty;
+  });
+  minifigs.forEach(f => {
+    const sh = f.shelf_location && f.shelf_location.trim() ? f.shelf_location.trim() : 'Unassigned';
+    const qty = f.quantity || 1;
+    const isUsed = f.condition && f.condition.toLowerCase() === 'used';
+    const price = isUsed ? (f.market_price_used || 0) : (f.market_price_new || 0);
+    if (!shelfBreakdownMap[sh]) shelfBreakdownMap[sh] = { shelf: sh, count: 0, market: 0 };
+    shelfBreakdownMap[sh].count += qty;
+    shelfBreakdownMap[sh].market += price * qty;
+  });
+  const shelfBreakdown = Object.values(shelfBreakdownMap).sort((a, b) => b.market - a.market || b.count - a.count);
+
   const renderSortArrow = (field) => {
     if (sortField !== field) return null;
     return sortOrder === 'asc' ? ' ▲' : ' ▼';
@@ -988,6 +1055,9 @@ function App() {
         </button>
         <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); setSortOrder('asc'); }}>
           🦸 Minifigs ({minifigs.length})
+        </button>
+        <button className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+          📊 Stats
         </button>
         <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); setSortOrder('asc'); }}>
           ⭐ Wishlist ({wishlist.length})
@@ -1202,7 +1272,109 @@ function App() {
         </>
       )}
 
-      {/* TAB 3: WISHLIST */}
+      {/* TAB 3: DASHBOARD / COLLECTION BREAKDOWN */}
+      {activeTab === 'dashboard' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <section className="stats-row">
+            <div className="stat-card">
+              <h3>Total Portfolio Value</h3>
+              <p>${portfolioMarket.toFixed(2)}</p>
+              <small style={{ opacity: 0.75 }}>{allSetsQty} sets · {allFigsQty} minifigs</small>
+            </div>
+            <div className="stat-card">
+              <h3>Total Invested</h3>
+              <p>${portfolioCost.toFixed(2)}</p>
+              <small style={{ opacity: 0.75 }}>Sets: ${allSetsCost.toFixed(0)} · Figs: ${allFigsCost.toFixed(0)}</small>
+            </div>
+            <div className="stat-card">
+              <h3>Unrealized Gain</h3>
+              <p className={unrealizedGain >= 0 ? 'text-success' : 'text-danger'}>
+                {unrealizedGain >= 0 ? '+' : ''}${unrealizedGain.toFixed(2)} ({portfolioROI}%)
+              </p>
+              <small style={{ opacity: 0.75 }}>Realized Sales Profit: ${allSalesProfit.toFixed(2)}</small>
+            </div>
+          </section>
+
+          <div className="stat-card" style={{ textAlign: 'left' }}>
+            <h3 style={{ marginBottom: '12px' }}>🏷️ Breakdown by Theme (Tap to Filter Sets)</h3>
+            {themeBreakdown.length === 0 ? (
+              <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>No items in collection yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {themeBreakdown.map((row) => {
+                  const sharePct = portfolioMarket > 0 ? Math.min(100, (row.market / portfolioMarket) * 100) : 0;
+                  const gain = row.market - row.cost;
+                  return (
+                    <div
+                      key={row.theme}
+                      onClick={() => {
+                        if (row.setsQty > 0) {
+                          setFilterSetTheme(row.theme === 'Uncategorized' ? 'ALL' : row.theme);
+                          setActiveTab('sets');
+                        } else if (row.figsQty > 0) {
+                          setFilterFigTheme(row.theme === 'Uncategorized' ? 'ALL' : row.theme);
+                          setActiveTab('minifigs');
+                        }
+                      }}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(128,128,128,0.25)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <strong>{row.theme}</strong>
+                        <strong>${row.market.toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', opacity: 0.8, marginBottom: '6px' }}>
+                        <span>{row.setsQty} sets · {row.figsQty} minifigs</span>
+                        <span>
+                          Cost: ${row.cost.toFixed(2)} ({gain >= 0 ? '+' : ''}${gain.toFixed(0)})
+                        </span>
+                      </div>
+                      <div style={{ height: '6px', borderRadius: '4px', backgroundColor: 'rgba(128,128,128,0.2)', overflow: 'hidden' }}>
+                        <div style={{ width: `${sharePct}%`, height: '100%', backgroundColor: '#2563eb' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="stat-card" style={{ textAlign: 'left' }}>
+            <h3 style={{ marginBottom: '12px' }}>🗄️ Breakdown by Shelf / Storage Location</h3>
+            {shelfBreakdown.length === 0 ? (
+              <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>No shelf locations recorded yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {shelfBreakdown.map((row) => (
+                  <div
+                    key={row.shelf}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(128,128,128,0.2)'
+                    }}
+                  >
+                    <div>
+                      <strong>{row.shelf}</strong>
+                      <div style={{ fontSize: '0.8rem', opacity: 0.75 }}>{row.count} items</div>
+                    </div>
+                    <strong>${row.market.toFixed(2)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: WISHLIST */}
       {activeTab === 'wishlist' && (
         <>
           <section className="stats-row">
@@ -1265,7 +1437,7 @@ function App() {
         </>
       )}
 
-      {/* TAB 4: SALES LOG */}
+      {/* TAB 5: SALES LOG */}
       {activeTab === 'sales' && (
         <>
           <section className="stats-row">
