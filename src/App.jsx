@@ -64,15 +64,64 @@ const getBrickLinkCatalogUrl = (itemNumber, isMinifig = false) => {
   return `https://www.bricklink.com/v2/catalog/catalogitem.page?S=${encodeURIComponent(formatted)}`;
 };
 
+// Extract & pack [Box: Yes] / [Box: No] tag inside item_notes so zero backend schema changes are required
+const parseSetBoxInfo = (setItem) => {
+  const rawNotes = String(setItem?.item_notes || '');
+  const match = rawNotes.match(/\[Box:\s*(Yes|No)\]/i);
+  const cleanNotes = rawNotes.replace(/\s*\[Box:\s*(Yes|No)\]\s*/gi, ' ').trim();
+  if (match) {
+    const val = match[1].toLowerCase() === 'yes' ? 'Yes' : 'No';
+    return { hasBox: val, cleanNotes };
+  }
+  if (setItem?.has_box === 'Yes' || setItem?.has_box === 'No') {
+    return { hasBox: setItem.has_box, cleanNotes };
+  }
+  return { hasBox: '', cleanNotes };
+};
+
+const buildNotesWithBox = (cleanNotes, hasBox) => {
+  const base = String(cleanNotes || '').replace(/\s*\[Box:\s*(Yes|No)\]\s*/gi, ' ').trim();
+  if (hasBox === 'Yes' || hasBox === 'No') {
+    return base ? `${base} [Box: ${hasBox}]` : `[Box: ${hasBox}]`;
+  }
+  return base;
+};
+
+// Normalizes server auto-increment IDs (> 0) and offline temp IDs (-Date.now() < 0)
+// so newly added items always rank highest when sorted by Date Added descending
+const getDateAddedRank = (item) => {
+  if (item.created_at) {
+    const ts = Date.parse(item.created_at);
+    if (!Number.isNaN(ts)) return ts;
+  }
+  const id = Number(item.id) || 0;
+  if (id < 0) {
+    return 1e12 + Math.abs(id);
+  }
+  return id;
+};
+
 const exportToCSV = (data, filename = 'lego_inventory.csv') => {
   if (!data || !data.length) {
     alert("No data available to export.");
     return;
   }
-  const headers = Object.keys(data[0]).filter(k => !k.startsWith('_'));
+  const isSetsExport = filename.startsWith('sets');
+  const normalizedData = isSetsExport
+    ? data.map(row => {
+        const { hasBox, cleanNotes } = parseSetBoxInfo(row);
+        return {
+          ...row,
+          has_box: hasBox || (row.condition === 'New' ? 'Yes' : ''),
+          item_notes: cleanNotes
+        };
+      })
+    : data;
+
+  const headers = Object.keys(normalizedData[0]).filter(k => !k.startsWith('_'));
   const csvRows = [
     headers.join(','),
-    ...data.map(row => 
+    ...normalizedData.map(row => 
       headers.map(field => {
         const value = row[field] === null || row[field] === undefined ? '' : row[field];
         return `"${String(value).replace(/"/g, '""')}"`;
@@ -175,6 +224,13 @@ const normalizePolybag = (val) => {
   return 'No';
 };
 
+const normalizeHasBox = (val) => {
+  const v = String(val || '').trim().toLowerCase();
+  if (v === 'yes' || v === 'true' || v === '1' || v === 'y') return 'Yes';
+  if (v === 'no' || v === 'false' || v === '0' || v === 'n') return 'No';
+  return '';
+};
+
 const mapCsvRowsForTarget = (rawRows, targetType) => {
   const mapped = [];
   let skipped = 0;
@@ -184,18 +240,23 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
       const setNum = pickCol(r, ['set_number', 'set num', 'setnumber', 'set_num', 'number', 'item_number', 'item no']);
       if (!setNum) { skipped++; return; }
       const setName = pickCol(r, ['set_name', 'name', 'set name', 'title', 'description'], `Set ${setNum}`);
+      const condition = normalizeCondition(pickCol(r, ['condition', 'cond', 'new/used'], 'New'));
+      const rawHasBox = normalizeHasBox(pickCol(r, ['has_box', 'box', 'with_box', 'original_box'], ''));
+      const rawNotes = pickCol(r, ['item_notes', 'notes', 'remarks', 'comment'], '');
+      const packedNotes = buildNotesWithBox(rawNotes, rawHasBox);
       mapped.push({
         set_number: setNum,
         set_name: setName,
         theme: pickCol(r, ['theme', 'category', 'theme_name'], ''),
         quantity: Math.max(1, parseInt(pickCol(r, ['quantity', 'qty', 'owned'], '1'), 10) || 1),
-        condition: normalizeCondition(pickCol(r, ['condition', 'cond', 'new/used'], 'New')),
+        condition,
+        has_box: rawHasBox,
         purchase_price: parseMoney(pickCol(r, ['purchase_price', 'cost', 'my cost', 'price', 'paid'], '0')),
         purchase_dt: pickCol(r, ['purchase_dt', 'purchase_date', 'date', 'purchased'], ''),
         new_shelf: pickCol(r, ['new_shelf', 'shelf', 'shelf_location', 'location', 'bin'], ''),
         store: pickCol(r, ['store', 'source', 'retailer', 'seller'], ''),
         polybag: normalizePolybag(pickCol(r, ['polybag', 'is_polybag'], 'No')),
-        item_notes: pickCol(r, ['item_notes', 'notes', 'remarks', 'comment'], '')
+        item_notes: packedNotes
       });
     } else if (targetType === 'MINIFIGS') {
       const figNum = pickCol(r, ['fig_number', 'fig num', 'fignumber', 'fig_num', 'item_number', 'number', 'item no']);
@@ -253,7 +314,7 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
 const SAMPLE_CSV_TEMPLATES = {
   SETS: {
     filename: 'sample_sets_import.csv',
-    content: 'set_number,set_name,theme,quantity,condition,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,1,New,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n30654,X-Wing Starfighter,Star Wars,2,New,4.99,2026-01-10,Bin P2,Target,Yes,Polybag haul'
+    content: 'set_number,set_name,theme,quantity,condition,has_box,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,1,New,Yes,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n75301,Luke Skywalker X-Wing,Star Wars,1,Used,No,28.00,2026-01-10,Shelf B2,Local Seller,No,Complete with instructions'
   },
   MINIFIGS: {
     filename: 'sample_minifigs_import.csv',
@@ -299,8 +360,9 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
-  const [sortField, setSortField] = useState('set_number');
-  const [sortOrder, setSortOrder] = useState('asc');
+  // Default sort: Date Added (newest first)
+  const [sortField, setSortField] = useState('date_added');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   // Detail Sheet & Image Zoom State
   const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG', data: item }
@@ -320,7 +382,7 @@ function App() {
   const [editingSet, setEditingSet] = useState(null);
   const [isLookingUpSet, setIsLookingUpSet] = useState(false);
   const [formData, setFormData] = useState({
-    set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New',
+    set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', has_box: '',
     purchase_price: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
   });
 
@@ -500,7 +562,8 @@ function App() {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortOrder('asc');
+      // Default to newest first ('desc') when selecting Date Added or Sale Date
+      setSortOrder(field === 'date_added' || field === 'sale_date' ? 'desc' : 'asc');
     }
   };
 
@@ -871,33 +934,110 @@ function App() {
     }
   };
 
+  // --- QUICK BOX UPDATE DIRECTLY FROM SLIDE-UP DETAIL SHEET ---
+  const handleQuickUpdateSetBox = async (setItem, nextHasBox) => {
+    const { cleanNotes } = parseSetBoxInfo(setItem);
+    const nextNotes = buildNotesWithBox(cleanNotes, nextHasBox);
+    const updatedItem = {
+      ...setItem,
+      item_notes: nextNotes,
+      has_box: nextHasBox,
+      _pendingSync: !navigator.onLine
+    };
+
+    const updatedSets = sets.map(s => s.id === setItem.id ? updatedItem : s);
+    setSets(updatedSets);
+    writeCache(CACHE_KEYS.sets, updatedSets);
+    setLastCachedTime(localStorage.getItem(CACHE_KEYS.lastUpdated) || '');
+    setDetailItem({ type: 'SET', data: updatedItem });
+
+    const payload = {
+      set_number: updatedItem.set_number,
+      set_name: updatedItem.set_name,
+      theme: updatedItem.theme || null,
+      quantity: updatedItem.quantity || 1,
+      condition: updatedItem.condition || 'New',
+      purchase_price: updatedItem.purchase_price || 0.0,
+      purchase_dt: updatedItem.purchase_dt || null,
+      new_shelf: updatedItem.new_shelf || null,
+      item_notes: nextNotes || null,
+      store: updatedItem.store || null,
+      polybag: updatedItem.polybag || 'No'
+    };
+
+    if (setItem.id < 0) return;
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({
+        endpoint: `/sets/${setItem.id}`,
+        method: 'PUT',
+        body: payload,
+        label: `Update box status for Set ${setItem.set_number}`
+      });
+      setSyncStatus(`📴 Saved Box: ${nextHasBox || 'Cleared'} offline (will sync when online).`);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/sets/${setItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        fetchSets();
+      } else {
+        throw new Error("Server error");
+      }
+    } catch (err) {
+      enqueueOfflineAction({
+        endpoint: `/sets/${setItem.id}`,
+        method: 'PUT',
+        body: payload,
+        label: `Update box status for Set ${setItem.set_number}`
+      });
+      setSyncStatus(`📴 Server unreachable — queued Box update offline.`);
+    }
+  };
+
   // --- SETS CRUD (WITH OFFLINE QUEUE FALLBACK) ---
   const handleOpenModal = (setItem = null) => {
     if (setItem) {
+      const { hasBox, cleanNotes } = parseSetBoxInfo(setItem);
       setEditingSet(setItem);
       setFormData({
         set_number: setItem.set_number || '', set_name: setItem.set_name || '', theme: setItem.theme || '',
-        quantity: setItem.quantity || 1, condition: setItem.condition || 'New', purchase_price: setItem.purchase_price || 0.0,
+        quantity: setItem.quantity || 1, condition: setItem.condition || 'New', has_box: hasBox,
+        purchase_price: setItem.purchase_price || 0.0,
         purchase_dt: setItem.purchase_dt || '', new_shelf: setItem.new_shelf || '',
-        item_notes: setItem.item_notes || '', store: setItem.store || '', polybag: setItem.polybag || 'No'
+        item_notes: cleanNotes, store: setItem.store || '', polybag: setItem.polybag || 'No'
       });
     } else {
       setEditingSet(null);
       setFormData({
-        set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', purchase_price: 0.0,
+        set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', has_box: '',
+        purchase_price: 0.0,
         purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
       });
     }
     setIsModalOpen(true);
   };
 
-  const applySetLocally = () => {
+  const buildSetPayload = () => {
+    const packedNotes = buildNotesWithBox(formData.item_notes, formData.has_box);
+    return {
+      ...formData,
+      item_notes: packedNotes
+    };
+  };
+
+  const applySetLocally = (payload) => {
     let updated;
     if (editingSet) {
-      updated = sets.map(s => s.id === editingSet.id ? { ...s, ...formData, _pendingSync: true } : s);
+      updated = sets.map(s => s.id === editingSet.id ? { ...s, ...payload, _pendingSync: true } : s);
     } else {
       const tempItem = {
-        ...formData,
+        ...payload,
         id: -Date.now(),
         market_price_new: 0,
         market_price_used: 0,
@@ -915,12 +1055,13 @@ function App() {
     const isTempOfflineItem = editingSet && editingSet.id < 0;
     const endpoint = (editingSet && !isTempOfflineItem) ? `/sets/${editingSet.id}` : `/add-set`;
     const method = (editingSet && !isTempOfflineItem) ? 'PUT' : 'POST';
+    const payload = buildSetPayload();
 
     if (!navigator.onLine) {
-      applySetLocally();
-      enqueueOfflineAction({ endpoint, method, body: formData, label: `Set ${formData.set_number}` });
+      applySetLocally(payload);
+      enqueueOfflineAction({ endpoint, method, body: payload, label: `Set ${payload.set_number}` });
       setIsModalOpen(false);
-      setSyncStatus(`📴 Saved Set ${formData.set_number} offline (will sync when back online).`);
+      setSyncStatus(`📴 Saved Set ${payload.set_number} offline (will sync when back online).`);
       return;
     }
 
@@ -928,7 +1069,7 @@ function App() {
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         setIsModalOpen(false);
@@ -937,10 +1078,10 @@ function App() {
         throw new Error("Server returned error");
       }
     } catch (err) {
-      applySetLocally();
-      enqueueOfflineAction({ endpoint, method, body: formData, label: `Set ${formData.set_number}` });
+      applySetLocally(payload);
+      enqueueOfflineAction({ endpoint, method, body: payload, label: `Set ${payload.set_number}` });
       setIsModalOpen(false);
-      setSyncStatus(`📴 Server unreachable — saved Set ${formData.set_number} to offline queue.`);
+      setSyncStatus(`📴 Server unreachable — saved Set ${payload.set_number} to offline queue.`);
     }
   };
 
@@ -1453,6 +1594,12 @@ function App() {
 
   const sortData = (data, getValFunc) => {
     return [...data].sort((a, b) => {
+      if (sortField === 'date_added') {
+        const aRank = getDateAddedRank(a);
+        const bRank = getDateAddedRank(b);
+        return sortOrder === 'asc' ? aRank - bRank : bRank - aRank;
+      }
+
       let aVal = getValFunc(a, sortField);
       let bVal = getValFunc(b, sortField);
 
@@ -1493,6 +1640,10 @@ function App() {
     if (field === 'market_price') {
       const isUsed = item.condition && item.condition.toLowerCase() === 'used';
       return isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+    }
+    if (field === 'has_box') {
+      const { hasBox } = parseSetBoxInfo(item);
+      return hasBox || (item.condition === 'New' ? 'Yes' : '');
     }
     return item[field];
   });
@@ -1627,7 +1778,14 @@ function App() {
   const renderSortControl = (options) => (
     <div className="filter-group">
       <label>Sort:</label>
-      <select value={sortField} onChange={(e) => setSortField(e.target.value)}>
+      <select
+        value={sortField}
+        onChange={(e) => {
+          const val = e.target.value;
+          setSortField(val);
+          setSortOrder(val === 'date_added' || val === 'sale_date' ? 'desc' : 'asc');
+        }}
+      >
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
@@ -1639,6 +1797,21 @@ function App() {
         onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
       >
         {sortOrder === 'asc' ? '↑' : '↓'}
+      </button>
+      <button
+        type="button"
+        className={`btn btn-sm ${sortField === 'date_added' ? 'btn-primary' : 'btn-secondary'}`}
+        title="Sort by Date Added (Newest First)"
+        onClick={() => {
+          if (sortField === 'date_added') {
+            setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+          } else {
+            setSortField('date_added');
+            setSortOrder('desc');
+          }
+        }}
+      >
+        🕒 Date Added{sortField === 'date_added' ? (sortOrder === 'desc' ? ' ↓' : ' ↑') : ''}
       </button>
     </div>
   );
@@ -1681,16 +1854,16 @@ function App() {
       </header>
 
       <nav className="tab-bar">
-        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => { setActiveTab('sets'); setSortField('set_number'); setSortOrder('asc'); }}>
+        <button className={`tab-btn ${activeTab === 'sets' ? 'active' : ''}`} onClick={() => { setActiveTab('sets'); setSortField('date_added'); setSortOrder('desc'); }}>
           📦 Sets ({sets.length})
         </button>
-        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('fig_number'); setSortOrder('asc'); }}>
+        <button className={`tab-btn ${activeTab === 'minifigs' ? 'active' : ''}`} onClick={() => { setActiveTab('minifigs'); setSortField('date_added'); setSortOrder('desc'); }}>
           🦸 Minifigs ({minifigs.length})
         </button>
         <button className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
           📊 Stats
         </button>
-        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('item_number'); setSortOrder('asc'); }}>
+        <button className={`tab-btn ${activeTab === 'wishlist' ? 'active' : ''}`} onClick={() => { setActiveTab('wishlist'); setSortField('date_added'); setSortOrder('desc'); }}>
           ⭐ Wishlist ({wishlist.length})
         </button>
         <button className={`tab-btn ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => { setActiveTab('sales'); setSortField('sale_date'); setSortOrder('desc'); }}>
@@ -1733,6 +1906,7 @@ function App() {
               </select>
             </div>
             {renderSortControl([
+              { value: 'date_added', label: 'Date Added' },
               { value: 'set_number', label: 'Set #' },
               { value: 'set_name', label: 'Name' },
               { value: 'theme', label: 'Theme' },
@@ -1755,6 +1929,7 @@ function App() {
                     <th onClick={() => handleSort('set_name')} style={{ cursor: 'pointer' }}>Name{renderSortArrow('set_name')}</th>
                     <th onClick={() => handleSort('quantity')} style={{ cursor: 'pointer' }}>Qty{renderSortArrow('quantity')}</th>
                     <th onClick={() => handleSort('condition')} style={{ cursor: 'pointer' }}>Cond.{renderSortArrow('condition')}</th>
+                    <th onClick={() => handleSort('has_box')} style={{ cursor: 'pointer' }}>Box{renderSortArrow('has_box')}</th>
                     <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
                     <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
                     <th onClick={() => handleSort('new_shelf')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('new_shelf')}</th>
@@ -1770,6 +1945,8 @@ function App() {
                     const imageUrl = formatImageUrl(item.image_url, item.set_number);
                     const isUsed = item.condition && item.condition.toLowerCase() === 'used';
                     const activeMarketPrice = isUsed ? (item.market_price_used || 0) : (item.market_price_new || 0);
+                    const { hasBox, cleanNotes } = parseSetBoxInfo(item);
+                    const boxDisplay = hasBox || (item.condition === 'New' ? 'Yes' : '-');
                     return (
                       <tr
                         key={item.id}
@@ -1781,13 +1958,14 @@ function App() {
                         <td>{item.set_name}</td>
                         <td>{item.quantity}</td>
                         <td>{item.condition || 'N/A'}</td>
+                        <td>{boxDisplay}</td>
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
                         <td>{item.new_shelf || '-'}</td>
                         <td>{item.theme || '-'}</td>
                         <td>{item.purchase_dt || '-'}</td>
                         <td>{item.store || '-'}</td>
-                        <td>{item.item_notes || '-'}</td>
+                        <td>{cleanNotes || '-'}</td>
                         <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
                           <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellSet(item)}>💰</button>
                           <button className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
@@ -1833,6 +2011,7 @@ function App() {
               </select>
             </div>
             {renderSortControl([
+              { value: 'date_added', label: 'Date Added' },
               { value: 'fig_number', label: 'Fig #' },
               { value: 'fig_name', label: 'Name' },
               { value: 'theme', label: 'Theme' },
@@ -2029,6 +2208,7 @@ function App() {
           <section className="controls-row">
             <input type="text" placeholder="Search wishlist items..." value={wishlistSearchQuery} onChange={(e) => setWishlistSearchQuery(e.target.value)} className="search-input" />
             {renderSortControl([
+              { value: 'date_added', label: 'Date Added' },
               { value: 'item_number', label: 'Item #' },
               { value: 'item_name', label: 'Name' },
               { value: 'priority', label: 'Priority' },
@@ -2094,6 +2274,7 @@ function App() {
             <input type="text" placeholder="Search sales log..." value={salesSearchQuery} onChange={(e) => setSalesSearchQuery(e.target.value)} className="search-input" />
             {renderSortControl([
               { value: 'sale_date', label: 'Sale Date' },
+              { value: 'date_added', label: 'Date Added' },
               { value: 'item_name', label: 'Name' },
               { value: 'sale_price', label: 'Sale Price' },
               { value: 'net_profit', label: 'Net Profit' },
@@ -2198,7 +2379,7 @@ function App() {
                   {importFileName ? `📄 ${importFileName}` : 'Tap here to choose a .CSV file'}
                 </p>
                 <small style={{ opacity: 0.8 }}>
-                  Accepts set_number / fig_number / item_number, name, theme, quantity, condition, purchase_price, shelf, store, notes
+                  Accepts set_number / fig_number / item_number, name, theme, quantity, condition, has_box, purchase_price, shelf, store, notes
                 </small>
               </div>
             </div>
@@ -2244,7 +2425,7 @@ function App() {
                   >
                     <strong>{r.set_number || r.fig_number || r.item_number}</strong> —{' '}
                     {r.set_name || r.fig_name || r.item_name}
-                    {r.quantity ? ` (Qty: ${r.quantity}, ${r.condition || 'New'})` : ''}
+                    {r.quantity ? ` (Qty: ${r.quantity}, ${r.condition || 'New'}${r.has_box ? `, Box: ${r.has_box}` : ''})` : ''}
                     {r.purchase_price ? ` · $${r.purchase_price.toFixed(2)}` : ''}
                     {r.sale_price ? ` · Sold: $${r.sale_price.toFixed(2)}` : ''}
                   </div>
@@ -2281,7 +2462,9 @@ function App() {
         const itemNum = isSet ? item.set_number : item.fig_number;
         const itemName = isSet ? item.set_name : item.fig_name;
         const shelf = isSet ? item.new_shelf : item.shelf_location;
-        const notes = isSet ? item.item_notes : item.notes;
+        const parsedBox = isSet ? parseSetBoxInfo(item) : { hasBox: '', cleanNotes: item.notes };
+        const notes = parsedBox.cleanNotes;
+        const hasBox = parsedBox.hasBox;
         const imageUrl = formatImageUrl(item.image_url, itemNum, !isSet);
         const blUrl = getBrickLinkCatalogUrl(itemNum, !isSet);
         const qty = item.quantity || 1;
@@ -2397,6 +2580,19 @@ function App() {
                     <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
                       {item.condition || 'New'}
                     </span>
+                    {isSet && hasBox && (
+                      <span
+                        style={{
+                          fontSize: '0.75rem',
+                          padding: '3px 8px',
+                          borderRadius: '999px',
+                          backgroundColor: hasBox === 'Yes' ? 'rgba(34,197,94,0.22)' : 'rgba(245,158,11,0.22)',
+                          color: hasBox === 'Yes' ? '#86efac' : '#fcd34d'
+                        }}
+                      >
+                        {hasBox === 'Yes' ? '📦 With Box' : '🚫 No Box'}
+                      </span>
+                    )}
                     {!isSet && (
                       <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(59,130,246,0.25)', color: '#93c5fd' }}>
                         {item.status || 'In Collection'}
@@ -2410,6 +2606,71 @@ function App() {
                   </div>
                 </div>
               </div>
+
+              {/* --- ONE-TAP ORIGINAL BOX TOGGLE FOR SETS --- */}
+              {isSet && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    marginBottom: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Original Box</div>
+                    <div style={{ fontSize: '0.85rem', color: '#f8fafc', fontWeight: 600 }}>
+                      {hasBox === 'Yes'
+                        ? 'Yes — Box Included'
+                        : hasBox === 'No'
+                        ? 'No — Loose / No Box'
+                        : item.condition === 'New'
+                        ? 'Yes (Sealed Default)'
+                        : 'Not Set Yet'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickUpdateSetBox(item, hasBox === 'Yes' ? '' : 'Yes')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: hasBox === 'Yes' ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: hasBox === 'Yes' ? 'rgba(34,197,94,0.28)' : 'rgba(15,23,42,0.5)',
+                        color: hasBox === 'Yes' ? '#86efac' : '#e2e8f0',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      📦 Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickUpdateSetBox(item, hasBox === 'No' ? '' : 'No')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: hasBox === 'No' ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: hasBox === 'No' ? 'rgba(245,158,11,0.28)' : 'rgba(15,23,42,0.5)',
+                        color: hasBox === 'No' ? '#fcd34d' : '#e2e8f0',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🚫 No
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div
                 style={{
@@ -2614,7 +2875,17 @@ function App() {
                 </div>
                 <div className="form-group">
                   <label>Condition</label>
-                  <select value={formData.condition} onChange={(e) => setFormData({...formData, condition: e.target.value})}>
+                  <select
+                    value={formData.condition}
+                    onChange={(e) => {
+                      const nextCond = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        condition: nextCond,
+                        has_box: nextCond === 'Used' && !prev.has_box ? 'Yes' : prev.has_box
+                      }));
+                    }}
+                  >
                     <option value="New">New</option>
                     <option value="Used">Used</option>
                   </select>
@@ -2640,12 +2911,22 @@ function App() {
                   <input type="text" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})} />
                 </div>
               </div>
-              <div className="form-group">
-                <label>Polybag?</label>
-                <select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}>
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Polybag?</label>
+                  <select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}>
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Has Box?</label>
+                  <select value={formData.has_box} onChange={(e) => setFormData({...formData, has_box: e.target.value})}>
+                    <option value="">{formData.condition === 'New' ? 'Yes (Sealed)' : 'Not Specified'}</option>
+                    <option value="Yes">Yes (Box Included)</option>
+                    <option value="No">No (Loose / No Box)</option>
+                  </select>
+                </div>
               </div>
               <div className="form-group">
                 <label>Notes</label>
