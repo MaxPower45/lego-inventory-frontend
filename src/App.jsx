@@ -112,6 +112,7 @@ const exportToCSV = (data, filename = 'lego_inventory.csv') => {
         const { hasBox, cleanNotes } = parseSetBoxInfo(row);
         return {
           ...row,
+          year_released: row.year_released > 0 ? row.year_released : '',
           has_box: hasBox || (row.condition === 'New' ? 'Yes' : ''),
           item_notes: cleanNotes
         };
@@ -212,6 +213,12 @@ const parseMoney = (val) => {
   return Number.isFinite(num) ? num : 0;
 };
 
+const parseReleaseYear = (val) => {
+  if (!val) return null;
+  const num = parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+  return num >= 1949 && num <= 2100 ? num : null;
+};
+
 const normalizeCondition = (val) => {
   const v = String(val || '').trim().toLowerCase();
   if (v === 'u' || v === 'used') return 'Used';
@@ -248,6 +255,7 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
         set_number: setNum,
         set_name: setName,
         theme: pickCol(r, ['theme', 'category', 'theme_name'], ''),
+        year_released: parseReleaseYear(pickCol(r, ['year_released', 'year', 'release_year', 'released'], '')),
         quantity: Math.max(1, parseInt(pickCol(r, ['quantity', 'qty', 'owned'], '1'), 10) || 1),
         condition,
         has_box: rawHasBox,
@@ -314,7 +322,7 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
 const SAMPLE_CSV_TEMPLATES = {
   SETS: {
     filename: 'sample_sets_import.csv',
-    content: 'set_number,set_name,theme,quantity,condition,has_box,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,1,New,Yes,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n75301,Luke Skywalker X-Wing,Star Wars,1,Used,No,28.00,2026-01-10,Shelf B2,Local Seller,No,Complete with instructions'
+    content: 'set_number,set_name,theme,year_released,quantity,condition,has_box,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,2017,1,New,Yes,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n75301,Luke Skywalker X-Wing,Star Wars,2021,1,Used,No,28.00,2026-01-10,Shelf B2,Local Seller,No,Complete with instructions'
   },
   MINIFIGS: {
     filename: 'sample_minifigs_import.csv',
@@ -382,7 +390,7 @@ function App() {
   const [editingSet, setEditingSet] = useState(null);
   const [isLookingUpSet, setIsLookingUpSet] = useState(false);
   const [formData, setFormData] = useState({
-    set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', has_box: '',
+    set_number: '', set_name: '', theme: '', year_released: '', quantity: 1, condition: 'New', has_box: '',
     purchase_price: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
   });
 
@@ -562,8 +570,8 @@ function App() {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      // Default to newest first ('desc') when selecting Date Added or Sale Date
-      setSortOrder(field === 'date_added' || field === 'sale_date' ? 'desc' : 'asc');
+      // Default to newest first ('desc') when selecting Date Added, Sale Date, or Release Year
+      setSortOrder(field === 'date_added' || field === 'sale_date' || field === 'year_released' ? 'desc' : 'asc');
     }
   };
 
@@ -670,6 +678,7 @@ function App() {
             quantity: newQty,
             set_name: row.set_name || existing.set_name,
             theme: row.theme || existing.theme,
+            year_released: row.year_released || existing.year_released,
             new_shelf: row.new_shelf || existing.new_shelf,
             store: row.store || existing.store,
             item_notes: row.item_notes || existing.item_notes,
@@ -685,6 +694,7 @@ function App() {
                 set_number: merged.set_number,
                 set_name: merged.set_name,
                 theme: merged.theme || null,
+                year_released: merged.year_released || null,
                 quantity: merged.quantity,
                 condition: merged.condition || 'New',
                 purchase_price: merged.purchase_price || 0.0,
@@ -884,7 +894,8 @@ function App() {
         setFormData(prev => ({
           ...prev,
           set_name: data.name ? decodeHtml(data.name) : prev.set_name,
-          theme: data.theme ? decodeHtml(data.theme) : prev.theme
+          theme: data.theme ? decodeHtml(data.theme) : prev.theme,
+          year_released: data.year_released ? String(data.year_released) : prev.year_released
         }));
       }
     } catch (err) {
@@ -959,6 +970,7 @@ function App() {
       set_number: updatedItem.set_number,
       set_name: updatedItem.set_name,
       theme: updatedItem.theme || null,
+      year_released: updatedItem.year_released > 0 ? updatedItem.year_released : null,
       quantity: updatedItem.quantity || 1,
       condition: nextCondition,
       purchase_price: updatedItem.purchase_price || 0.0,
@@ -1071,18 +1083,36 @@ function App() {
       const { hasBox, cleanNotes } = parseSetBoxInfo(setItem);
       setEditingSet(setItem);
       setFormData({
-        set_number: setItem.set_number || '', set_name: setItem.set_name || '', theme: setItem.theme || '',
-        quantity: setItem.quantity || 1, condition: setItem.condition || 'New', has_box: hasBox,
+        set_number: setItem.set_number || '',
+        set_name: setItem.set_name || '',
+        theme: setItem.theme || '',
+        year_released: setItem.year_released > 0 ? String(setItem.year_released) : '',
+        quantity: setItem.quantity || 1,
+        condition: setItem.condition || 'New',
+        has_box: hasBox,
         purchase_price: setItem.purchase_price || 0.0,
-        purchase_dt: setItem.purchase_dt || '', new_shelf: setItem.new_shelf || '',
-        item_notes: cleanNotes, store: setItem.store || '', polybag: setItem.polybag || 'No'
+        purchase_dt: setItem.purchase_dt || '',
+        new_shelf: setItem.new_shelf || '',
+        item_notes: cleanNotes,
+        store: setItem.store || '',
+        polybag: setItem.polybag || 'No'
       });
     } else {
       setEditingSet(null);
       setFormData({
-        set_number: '', set_name: '', theme: '', quantity: 1, condition: 'New', has_box: '',
+        set_number: '',
+        set_name: '',
+        theme: '',
+        year_released: '',
+        quantity: 1,
+        condition: 'New',
+        has_box: '',
         purchase_price: 0.0,
-        purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
+        purchase_dt: '',
+        new_shelf: '',
+        item_notes: '',
+        store: '',
+        polybag: 'No'
       });
     }
     setIsModalOpen(true);
@@ -1090,8 +1120,10 @@ function App() {
 
   const buildSetPayload = () => {
     const packedNotes = buildNotesWithBox(formData.item_notes, formData.has_box);
+    const parsedYear = parseInt(formData.year_released, 10);
     return {
       ...formData,
+      year_released: Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : null,
       item_notes: packedNotes
     };
   };
@@ -1489,6 +1521,7 @@ function App() {
             set_number: item.set_number,
             set_name: item.set_name,
             theme: item.theme || null,
+            year_released: item.year_released > 0 ? item.year_released : null,
             quantity: newQty,
             condition: item.condition || 'New',
             purchase_price: item.purchase_price || 0.0,
@@ -1665,6 +1698,15 @@ function App() {
         return sortOrder === 'asc' ? aRank - bRank : bRank - aRank;
       }
 
+      if (sortField === 'year_released') {
+        const aYear = Number(a.year_released) > 0 ? Number(a.year_released) : null;
+        const bYear = Number(b.year_released) > 0 ? Number(b.year_released) : null;
+        if (aYear === null && bYear === null) return 0;
+        if (aYear === null) return 1; // push unknown years to bottom
+        if (bYear === null) return -1;
+        return sortOrder === 'asc' ? aYear - bYear : bYear - aYear;
+      }
+
       let aVal = getValFunc(a, sortField);
       let bVal = getValFunc(b, sortField);
 
@@ -1692,6 +1734,7 @@ function App() {
     const matchesSearch = s.set_name?.toLowerCase().includes(q) || 
                           s.set_number?.toLowerCase().includes(q) ||
                           s.theme?.toLowerCase().includes(q) ||
+                          (s.year_released > 0 && String(s.year_released).includes(q)) ||
                           s.store?.toLowerCase().includes(q) ||
                           s.item_notes?.toLowerCase().includes(q);
     if (!matchesSearch) return false;
@@ -1844,7 +1887,7 @@ function App() {
         onChange={(e) => {
           const val = e.target.value;
           setSortField(val);
-          setSortOrder(val === 'date_added' || val === 'sale_date' ? 'desc' : 'asc');
+          setSortOrder(val === 'date_added' || val === 'sale_date' || val === 'year_released' ? 'desc' : 'asc');
         }}
       >
         {options.map(opt => (
@@ -1950,7 +1993,7 @@ function App() {
           </section>
 
           <section className="controls-row">
-            <input type="text" placeholder="Search name, set #, theme, store..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
+            <input type="text" placeholder="Search name, set #, year, theme, store..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="search-input" />
             <div className="filter-group">
               <label>Theme:</label>
               <select value={filterSetTheme} onChange={(e) => setFilterSetTheme(e.target.value)}>
@@ -1968,6 +2011,7 @@ function App() {
             </div>
             {renderSortControl([
               { value: 'date_added', label: 'Date Added' },
+              { value: 'year_released', label: 'Release Year' },
               { value: 'set_number', label: 'Set #' },
               { value: 'set_name', label: 'Name' },
               { value: 'theme', label: 'Theme' },
@@ -2011,6 +2055,7 @@ function App() {
                       : hasBox === 'No'
                       ? ' · 🚫 No Box'
                       : '';
+                    const yearLabel = Number(item.year_released) > 0 ? ` · ${item.year_released}` : '';
                     return (
                       <tr
                         key={item.id}
@@ -2018,7 +2063,7 @@ function App() {
                         style={{ cursor: 'pointer' }}
                       >
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.set_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
-                        <td><strong>{item.set_number}</strong>{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
+                        <td><strong>{item.set_number}</strong>{yearLabel}{item.theme ? ` · ${item.theme}` : ''}{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.set_name}</td>
                         <td>{item.quantity}</td>
                         <td>{item.condition || 'N/A'}{condBadge}</td>
@@ -2442,7 +2487,7 @@ function App() {
                   {importFileName ? `📄 ${importFileName}` : 'Tap here to choose a .CSV file'}
                 </p>
                 <small style={{ opacity: 0.8 }}>
-                  Accepts set_number / fig_number / item_number, name, theme, quantity, condition, has_box, purchase_price, shelf, store, notes
+                  Accepts set_number / fig_number / item_number, name, theme, year_released, quantity, condition, has_box, purchase_price, shelf, store, notes
                 </small>
               </div>
             </div>
@@ -2488,6 +2533,7 @@ function App() {
                   >
                     <strong>{r.set_number || r.fig_number || r.item_number}</strong> —{' '}
                     {r.set_name || r.fig_name || r.item_name}
+                    {r.year_released ? ` (${r.year_released})` : ''}
                     {r.quantity ? ` (Qty: ${r.quantity}, ${r.condition || 'New'}${r.has_box ? `, Box: ${r.has_box}` : ''})` : ''}
                     {r.purchase_price ? ` · $${r.purchase_price.toFixed(2)}` : ''}
                     {r.sale_price ? ` · Sold: $${r.sale_price.toFixed(2)}` : ''}
@@ -2539,6 +2585,7 @@ function App() {
         const totalPosMarket = unitMarket * qty;
         const gain = totalPosMarket - totalPosCost;
         const roiPct = totalPosCost > 0 ? ((gain / totalPosCost) * 100).toFixed(1) : null;
+        const yearReleased = isSet && Number(item.year_released) > 0 ? item.year_released : null;
 
         return (
           <div
@@ -2632,7 +2679,7 @@ function App() {
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', marginBottom: '2px' }}>
-                    #{itemNum}{item.theme ? ` · ${item.theme}` : ''}
+                    #{itemNum}{yearReleased ? ` · ${yearReleased}` : ''}{item.theme ? ` · ${item.theme}` : ''}
                   </div>
                   <h2 style={{ margin: '0 0 8px 0', fontSize: '1.15rem', lineHeight: 1.3, color: '#ffffff' }}>
                     {itemName}
@@ -2652,6 +2699,11 @@ function App() {
                     >
                       {currentCondition}
                     </span>
+                    {yearReleased && (
+                      <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }}>
+                        📅 {yearReleased}
+                      </span>
+                    )}
                     {isSet && hasBox && (
                       <span
                         style={{
@@ -3023,9 +3075,15 @@ function App() {
                 <label>Set Name *</label>
                 <input type="text" required value={formData.set_name} onChange={(e) => setFormData({...formData, set_name: e.target.value})} />
               </div>
-              <div className="form-group">
-                <label>Theme</label>
-                <input type="text" placeholder="e.g. Star Wars, Ninjago, Technic" value={formData.theme} onChange={(e) => setFormData({...formData, theme: e.target.value})} />
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Theme</label>
+                  <input type="text" placeholder="e.g. Star Wars, Ninjago" value={formData.theme} onChange={(e) => setFormData({...formData, theme: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label>Release Year</label>
+                  <input type="number" min="1949" max="2100" placeholder="e.g. 2017" value={formData.year_released} onChange={(e) => setFormData({...formData, year_released: e.target.value})} />
+                </div>
               </div>
               <div className="form-row">
                 <div className="form-group">
