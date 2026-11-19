@@ -373,7 +373,7 @@ function App() {
   const [sortOrder, setSortOrder] = useState('desc');
 
   // Detail Sheet & Image Zoom State
-  const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG', data: item }
+  const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG' | 'WISHLIST', data: item }
   const [zoomedImageUrl, setZoomedImageUrl] = useState(null);
 
   // CSV Import Modal State
@@ -425,6 +425,15 @@ function App() {
 
   const enqueueOfflineAction = (action) => {
     const updated = [...readQueue(), { ...action, queueId: Date.now() + Math.random(), createdAt: new Date().toISOString() }];
+    writeQueue(updated);
+    setPendingQueue(updated);
+  };
+
+  const updateOfflineQueueByTempId = (tempId, newBody, remove = false) => {
+    const current = readQueue();
+    const updated = remove
+      ? current.filter(q => q.tempId !== tempId)
+      : current.map(q => (q.tempId === tempId ? { ...q, body: newBody } : q));
     writeQueue(updated);
     setPendingQueue(updated);
   };
@@ -708,9 +717,10 @@ function App() {
             });
           }
         } else {
+          const tempId = -(Date.now() + idx + 1);
           const tempItem = {
             ...row,
-            id: -(Date.now() + idx + 1),
+            id: tempId,
             market_price_new: 0,
             market_price_used: 0,
             _pendingSync: !navigator.onLine
@@ -720,6 +730,7 @@ function App() {
           apiOperations.push({
             endpoint: '/add-set',
             method: 'POST',
+            tempId,
             body: row,
             label: `CSV Add Set ${row.set_number}`
           });
@@ -773,9 +784,10 @@ function App() {
             });
           }
         } else {
+          const tempId = -(Date.now() + idx + 1);
           const tempItem = {
             ...row,
-            id: -(Date.now() + idx + 1),
+            id: tempId,
             market_price_new: 0,
             market_price_used: 0,
             _pendingSync: !navigator.onLine
@@ -785,6 +797,7 @@ function App() {
           apiOperations.push({
             endpoint: '/add-minifig',
             method: 'POST',
+            tempId,
             body: row,
             label: `CSV Add Minifig ${row.fig_number}`
           });
@@ -802,9 +815,10 @@ function App() {
           skippedDupes++;
           return;
         }
+        const tempId = -(Date.now() + idx + 1);
         const tempItem = {
           ...row,
-          id: -(Date.now() + idx + 1),
+          id: tempId,
           market_price_new: 0,
           market_price_used: 0,
           _pendingSync: !navigator.onLine
@@ -814,6 +828,7 @@ function App() {
         apiOperations.push({
           endpoint: '/add-wishlist',
           method: 'POST',
+          tempId,
           body: row,
           label: `CSV Add Wishlist ${row.item_number}`
         });
@@ -824,9 +839,10 @@ function App() {
       let nextSales = [...sales];
       importParsedRows.forEach((row, idx) => {
         const net_profit = (row.sale_price || 0) - ((row.cost_price || 0) + (row.platform_fees || 0) + (row.shipping_cost || 0));
+        const tempId = -(Date.now() + idx + 1);
         const tempItem = {
           ...row,
-          id: -(Date.now() + idx + 1),
+          id: tempId,
           net_profit,
           _pendingSync: !navigator.onLine
         };
@@ -835,6 +851,7 @@ function App() {
         apiOperations.push({
           endpoint: '/add-sale',
           method: 'POST',
+          tempId,
           body: row,
           label: `CSV Add Sale ${row.item_number}`
         });
@@ -981,7 +998,10 @@ function App() {
       polybag: updatedItem.polybag || 'No'
     };
 
-    if (setItem.id < 0) return;
+    if (setItem.id < 0) {
+      updateOfflineQueueByTempId(setItem.id, payload, false);
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({
@@ -1042,7 +1062,10 @@ function App() {
       status: updatedItem.status || 'In Collection'
     };
 
-    if (figItem.id < 0) return;
+    if (figItem.id < 0) {
+      updateOfflineQueueByTempId(figItem.id, payload, false);
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({
@@ -1128,14 +1151,14 @@ function App() {
     };
   };
 
-  const applySetLocally = (payload) => {
+  const applySetLocally = (payload, tempIdOverride = null) => {
     let updated;
     if (editingSet) {
       updated = sets.map(s => s.id === editingSet.id ? { ...s, ...payload, _pendingSync: true } : s);
     } else {
       const tempItem = {
         ...payload,
-        id: -Date.now(),
+        id: tempIdOverride || -Date.now(),
         market_price_new: 0,
         market_price_used: 0,
         _pendingSync: true
@@ -1154,9 +1177,22 @@ function App() {
     const method = (editingSet && !isTempOfflineItem) ? 'PUT' : 'POST';
     const payload = buildSetPayload();
 
-    if (!navigator.onLine) {
+    if (isTempOfflineItem) {
       applySetLocally(payload);
-      enqueueOfflineAction({ endpoint, method, body: payload, label: `Set ${payload.set_number}` });
+      updateOfflineQueueByTempId(editingSet.id, payload, false);
+      setIsModalOpen(false);
+      if (navigator.onLine) {
+        flushOfflineQueue(false);
+      } else {
+        setSyncStatus(`📴 Updated Set ${payload.set_number} in offline queue.`);
+      }
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const tempId = editingSet ? null : -Date.now();
+      applySetLocally(payload, tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: payload, label: `Set ${payload.set_number}` });
       setIsModalOpen(false);
       setSyncStatus(`📴 Saved Set ${payload.set_number} offline (will sync when back online).`);
       return;
@@ -1175,8 +1211,9 @@ function App() {
         throw new Error("Server returned error");
       }
     } catch (err) {
-      applySetLocally(payload);
-      enqueueOfflineAction({ endpoint, method, body: payload, label: `Set ${payload.set_number}` });
+      const tempId = editingSet ? null : -Date.now();
+      applySetLocally(payload, tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: payload, label: `Set ${payload.set_number}` });
       setIsModalOpen(false);
       setSyncStatus(`📴 Server unreachable — saved Set ${payload.set_number} to offline queue.`);
     }
@@ -1189,7 +1226,11 @@ function App() {
     writeCache(CACHE_KEYS.sets, updated);
     if (detailItem?.data?.id === id) setDetailItem(null);
 
-    if (id < 0) return;
+    if (id < 0) {
+      updateOfflineQueueByTempId(id, null, true);
+      setSyncStatus('🗑️ Removed unsynced set.');
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
@@ -1245,14 +1286,14 @@ function App() {
     setIsFigModalOpen(true);
   };
 
-  const applyFigLocally = () => {
+  const applyFigLocally = (tempIdOverride = null) => {
     let updated;
     if (editingFig) {
       updated = minifigs.map(f => f.id === editingFig.id ? { ...f, ...figFormData, _pendingSync: true } : f);
     } else {
       const tempItem = {
         ...figFormData,
-        id: -Date.now(),
+        id: tempIdOverride || -Date.now(),
         market_price_new: 0,
         market_price_used: 0,
         _pendingSync: true
@@ -1270,9 +1311,22 @@ function App() {
     const endpoint = (editingFig && !isTempOfflineItem) ? `/minifigs/${editingFig.id}` : `/add-minifig`;
     const method = (editingFig && !isTempOfflineItem) ? 'PUT' : 'POST';
 
-    if (!navigator.onLine) {
+    if (isTempOfflineItem) {
       applyFigLocally();
-      enqueueOfflineAction({ endpoint, method, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
+      updateOfflineQueueByTempId(editingFig.id, figFormData, false);
+      setIsFigModalOpen(false);
+      if (navigator.onLine) {
+        flushOfflineQueue(false);
+      } else {
+        setSyncStatus(`📴 Updated Minifig ${figFormData.fig_number} in offline queue.`);
+      }
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const tempId = editingFig ? null : -Date.now();
+      applyFigLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
       setIsFigModalOpen(false);
       setSyncStatus(`📴 Saved Minifig ${figFormData.fig_number} offline (will sync when back online).`);
       return;
@@ -1291,8 +1345,9 @@ function App() {
         throw new Error("Server returned error");
       }
     } catch (err) {
-      applyFigLocally();
-      enqueueOfflineAction({ endpoint, method, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
+      const tempId = editingFig ? null : -Date.now();
+      applyFigLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: figFormData, label: `Minifig ${figFormData.fig_number}` });
       setIsFigModalOpen(false);
       setSyncStatus(`📴 Server unreachable — saved Minifig ${figFormData.fig_number} to offline queue.`);
     }
@@ -1305,7 +1360,11 @@ function App() {
     writeCache(CACHE_KEYS.minifigs, updated);
     if (detailItem?.data?.id === id) setDetailItem(null);
 
-    if (id < 0) return;
+    if (id < 0) {
+      updateOfflineQueueByTempId(id, null, true);
+      setSyncStatus('🗑️ Removed unsynced minifigure.');
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({ endpoint: `/minifigs/${id}`, method: 'DELETE', label: `Delete minifig #${id}` });
@@ -1397,26 +1456,35 @@ function App() {
     if (wishItem) {
       setEditingWish(wishItem);
       setWishFormData({
-        item_number: wishItem.item_number || '', item_name: wishItem.item_name || '', item_type: wishItem.item_type || 'SET',
-        target_price: wishItem.target_price || 0.0, priority: wishItem.priority || 'Medium', notes: wishItem.notes || ''
+        item_number: wishItem.item_number || '',
+        item_name: wishItem.item_name || '',
+        item_type: wishItem.item_type || 'SET',
+        target_price: wishItem.target_price || 0.0,
+        priority: wishItem.priority || 'Medium',
+        notes: wishItem.notes || ''
       });
     } else {
       setEditingWish(null);
       setWishFormData({
-        item_number: '', item_name: '', item_type: 'SET', target_price: 0.0, priority: 'Medium', notes: ''
+        item_number: '',
+        item_name: '',
+        item_type: 'SET',
+        target_price: 0.0,
+        priority: 'Medium',
+        notes: ''
       });
     }
     setIsWishModalOpen(true);
   };
 
-  const applyWishLocally = () => {
+  const applyWishLocally = (tempIdOverride = null) => {
     let updated;
     if (editingWish) {
       updated = wishlist.map(w => w.id === editingWish.id ? { ...w, ...wishFormData, _pendingSync: true } : w);
     } else {
       const tempItem = {
         ...wishFormData,
-        id: -Date.now(),
+        id: tempIdOverride || -Date.now(),
         market_price_new: 0,
         market_price_used: 0,
         _pendingSync: true
@@ -1434,9 +1502,22 @@ function App() {
     const endpoint = (editingWish && !isTempOfflineItem) ? `/wishlist/${editingWish.id}` : `/add-wishlist`;
     const method = (editingWish && !isTempOfflineItem) ? 'PUT' : 'POST';
 
-    if (!navigator.onLine) {
+    if (isTempOfflineItem) {
       applyWishLocally();
-      enqueueOfflineAction({ endpoint, method, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
+      updateOfflineQueueByTempId(editingWish.id, wishFormData, false);
+      setIsWishModalOpen(false);
+      if (navigator.onLine) {
+        flushOfflineQueue(false);
+      } else {
+        setSyncStatus(`📴 Updated Wishlist ${wishFormData.item_number} in offline queue.`);
+      }
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const tempId = editingWish ? null : -Date.now();
+      applyWishLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
       setIsWishModalOpen(false);
       setSyncStatus(`📴 Saved Wishlist ${wishFormData.item_number} offline (will sync when back online).`);
       return;
@@ -1455,8 +1536,9 @@ function App() {
         throw new Error("Server returned error");
       }
     } catch (err) {
-      applyWishLocally();
-      enqueueOfflineAction({ endpoint, method, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
+      const tempId = editingWish ? null : -Date.now();
+      applyWishLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: wishFormData, label: `Wishlist ${wishFormData.item_number}` });
       setIsWishModalOpen(false);
       setSyncStatus(`📴 Server unreachable — saved Wishlist ${wishFormData.item_number} to offline queue.`);
     }
@@ -1467,8 +1549,13 @@ function App() {
     const updated = wishlist.filter(w => w.id !== id);
     setWishlist(updated);
     writeCache(CACHE_KEYS.wishlist, updated);
+    if (detailItem?.data?.id === id) setDetailItem(null);
 
-    if (id < 0) return;
+    if (id < 0) {
+      updateOfflineQueueByTempId(id, null, true);
+      setSyncStatus('🗑️ Removed unsynced wishlist item.');
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({ endpoint: `/wishlist/${id}`, method: 'DELETE', label: `Delete wishlist #${id}` });
@@ -1573,6 +1660,8 @@ function App() {
             enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'PUT', body: updatePayload, label: `Decrement ${type} #${item.id}` });
           }
         }
+      } else {
+        updateOfflineQueueByTempId(item.id, updatePayload, false);
       }
       return ` (Qty reduced ${currentQty} → ${newQty})`;
     } else {
@@ -1602,12 +1691,14 @@ function App() {
             enqueueOfflineAction({ endpoint: `${basePath}/${item.id}`, method: 'DELETE', label: `Remove sold ${type} #${item.id}` });
           }
         }
+      } else {
+        updateOfflineQueueByTempId(item.id, null, true);
       }
       return ' (Removed from active inventory)';
     }
   };
 
-  const applySaleLocally = () => {
+  const applySaleLocally = (tempIdOverride = null) => {
     const net_profit = (saleFormData.sale_price || 0) - ((saleFormData.cost_price || 0) + (saleFormData.platform_fees || 0) + (saleFormData.shipping_cost || 0));
     let updated;
     if (editingSale) {
@@ -1615,7 +1706,7 @@ function App() {
     } else {
       const tempItem = {
         ...saleFormData,
-        id: -Date.now(),
+        id: tempIdOverride || -Date.now(),
         net_profit,
         _pendingSync: true
       };
@@ -1636,9 +1727,22 @@ function App() {
     setSaleSourceItem(null);
     setDeductFromInventory(false);
 
-    if (!navigator.onLine) {
+    if (isTempOfflineItem) {
       applySaleLocally();
-      enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
+      updateOfflineQueueByTempId(editingSale.id, saleFormData, false);
+      setIsSaleModalOpen(false);
+      if (navigator.onLine) {
+        flushOfflineQueue(false);
+      } else {
+        setSyncStatus(`📴 Updated Sale ${saleFormData.item_number} in offline queue.`);
+      }
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const tempId = editingSale ? null : -Date.now();
+      applySaleLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
       setIsSaleModalOpen(false);
       setSyncStatus(`📴 Logged sale for ${saleFormData.item_number} offline${deductNote}.`);
       return;
@@ -1660,8 +1764,9 @@ function App() {
         throw new Error("Server returned error");
       }
     } catch (err) {
-      applySaleLocally();
-      enqueueOfflineAction({ endpoint, method, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
+      const tempId = editingSale ? null : -Date.now();
+      applySaleLocally(tempId);
+      enqueueOfflineAction({ endpoint, method, tempId, body: saleFormData, label: `Sale ${saleFormData.item_number}` });
       setIsSaleModalOpen(false);
       setSyncStatus(`📴 Server unreachable — saved Sale ${saleFormData.item_number} to offline queue${deductNote}.`);
     }
@@ -1673,7 +1778,11 @@ function App() {
     setSales(updated);
     writeCache(CACHE_KEYS.sales, updated);
 
-    if (id < 0) return;
+    if (id < 0) {
+      updateOfflineQueueByTempId(id, null, true);
+      setSyncStatus('🗑️ Removed unsynced sale.');
+      return;
+    }
 
     if (!navigator.onLine) {
       enqueueOfflineAction({ endpoint: `/sales/${id}`, method: 'DELETE', label: `Delete sale #${id}` });
@@ -1702,7 +1811,7 @@ function App() {
         const aYear = Number(a.year_released) > 0 ? Number(a.year_released) : null;
         const bYear = Number(b.year_released) > 0 ? Number(b.year_released) : null;
         if (aYear === null && bYear === null) return 0;
-        if (aYear === null) return 1; // push unknown years to bottom
+        if (aYear === null) return 1;
         if (bYear === null) return -1;
         return sortOrder === 'asc' ? aYear - bYear : bYear - aYear;
       }
@@ -2075,9 +2184,9 @@ function App() {
                         <td>{item.store || '-'}</td>
                         <td>{cleanNotes || '-'}</td>
                         <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
-                          <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellSet(item)}>💰</button>
-                          <button className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
-                          <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
+                          <button type="button" className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellSet(item)}>💰</button>
+                          <button type="button" className="btn-icon" title="Edit" onClick={() => handleOpenModal(item)}>✏️</button>
+                          <button type="button" className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteSet(item.id)}>🗑️</button>
                         </td>
                       </tr>
                     );
@@ -2184,10 +2293,10 @@ function App() {
                         <td>{item.notes || '-'}</td>
                         <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
                           {isForSale && (
-                            <button className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
+                            <button type="button" className="btn-icon" title="Quick Log Sale" onClick={() => handleQuickSellFig(item)}>💰</button>
                           )}
-                          <button className="btn-icon" title="Edit" onClick={() => handleOpenFigModal(item)}>✏️</button>
-                          <button className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
+                          <button type="button" className="btn-icon" title="Edit" onClick={() => handleOpenFigModal(item)}>✏️</button>
+                          <button type="button" className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteFig(item.id)}>🗑️</button>
                         </td>
                       </tr>
                     );
@@ -2346,7 +2455,11 @@ function App() {
                   {sortedWishlist.map((item) => {
                     const imageUrl = formatImageUrl(item.image_url, item.item_number, item.item_type === 'MINIFIG');
                     return (
-                      <tr key={item.id}>
+                      <tr
+                        key={item.id}
+                        onClick={() => setDetailItem({ type: 'WISHLIST', data: item })}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <td className="img-cell">{imageUrl ? <img src={imageUrl} alt={item.item_name} className="set-thumbnail" onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }} /> : <div className="no-img">No Img</div>}</td>
                         <td><strong>{item.item_number}</strong>{item._pendingSync ? ' 🟡' : ''}</td>
                         <td>{item.item_name}</td>
@@ -2355,9 +2468,9 @@ function App() {
                         <td>${(item.target_price || 0).toFixed(2)}</td>
                         <td>${(item.market_price_new || 0).toFixed(2)}</td>
                         <td>{item.notes || '-'}</td>
-                        <td className="actions-cell">
-                          <button className="btn-icon" onClick={() => handleOpenWishModal(item)}>✏️</button>
-                          <button className="btn-icon text-danger" onClick={() => handleDeleteWish(item.id)}>🗑️</button>
+                        <td className="actions-cell" onClick={(e) => e.stopPropagation()}>
+                          <button type="button" className="btn-icon" title="Edit" onClick={() => handleOpenWishModal(item)}>✏️</button>
+                          <button type="button" className="btn-icon text-danger" title="Delete" onClick={() => handleDeleteWish(item.id)}>🗑️</button>
                         </td>
                       </tr>
                     );
@@ -2421,8 +2534,8 @@ function App() {
                       <td>{item.platform}</td>
                       <td>{item.notes || '-'}</td>
                       <td className="actions-cell">
-                        <button className="btn-icon" onClick={() => handleOpenSaleModal(item)}>✏️</button>
-                        <button className="btn-icon text-danger" onClick={() => handleDeleteSale(item.id)}>🗑️</button>
+                        <button type="button" className="btn-icon" onClick={() => handleOpenSaleModal(item)}>✏️</button>
+                        <button type="button" className="btn-icon text-danger" onClick={() => handleDeleteSale(item.id)}>🗑️</button>
                       </td>
                     </tr>
                   ))}
@@ -2564,10 +2677,179 @@ function App() {
         </div>
       )}
 
-      {/* --- SLIDE-UP CLZ DETAIL SHEET MODAL --- */}
+      {/* --- SLIDE-UP DETAIL SHEET MODAL (SETS, MINIFIGS & WISHLIST) --- */}
       {detailItem && (() => {
+        const isWishlist = detailItem.type === 'WISHLIST';
         const isSet = detailItem.type === 'SET';
         const item = detailItem.data;
+
+        if (isWishlist) {
+          const isMinifig = item.item_type === 'MINIFIG';
+          const imageUrl = formatImageUrl(item.image_url, item.item_number, isMinifig);
+          const blUrl = getBrickLinkCatalogUrl(item.item_number, isMinifig);
+          return (
+            <div
+              className="modal-overlay"
+              onClick={() => setDetailItem(null)}
+              style={{ alignItems: 'flex-end', padding: 0 }}
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: '100%',
+                  maxWidth: '560px',
+                  margin: '0 auto',
+                  borderRadius: '18px 18px 0 0',
+                  maxHeight: '88vh',
+                  overflowY: 'auto',
+                  padding: '18px 20px 26px',
+                  backgroundColor: '#1e293b',
+                  color: '#f8fafc',
+                  borderTop: '1px solid rgba(255,255,255,0.18)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', color: '#94a3b8' }}>
+                    ⭐ WISHLIST DETAILS
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDetailItem(null)}
+                    style={{
+                      background: 'rgba(255,255,255,0.1)',
+                      border: 'none',
+                      color: '#f8fafc',
+                      borderRadius: '50%',
+                      width: '30px',
+                      height: '30px',
+                      fontSize: '1rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
+                  <div
+                    onClick={() => imageUrl && setZoomedImageUrl(imageUrl)}
+                    style={{
+                      width: '112px',
+                      height: '112px',
+                      borderRadius: '12px',
+                      backgroundColor: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      cursor: imageUrl ? 'zoom-in' : 'default',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}
+                  >
+                    {imageUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={item.item_name}
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '6px' }}
+                        onError={(e) => { e.target.onerror = null; e.target.src = 'https://cdn-icons-png.flaticon.com/512/808/808440.png'; }}
+                      />
+                    ) : (
+                      <span style={{ color: '#64748b', fontSize: '0.8rem' }}>No Image</span>
+                    )}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', marginBottom: '2px' }}>
+                      #{item.item_number} · {item.item_type}
+                    </div>
+                    <h2 style={{ margin: '0 0 8px 0', fontSize: '1.15rem', lineHeight: 1.3, color: '#ffffff' }}>
+                      {item.item_name}
+                    </h2>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(59,130,246,0.25)', color: '#93c5fd' }}>
+                        Priority: {item.priority || 'Medium'}
+                      </span>
+                      {item._pendingSync && (
+                        <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(245,158,11,0.25)', color: '#fcd34d' }}>
+                          🟡 Pending Sync
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '8px',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    backgroundColor: 'rgba(15,23,42,0.65)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    marginBottom: '14px',
+                    textAlign: 'center'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Target Price</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f8fafc', marginTop: '2px' }}>
+                      ${(item.target_price || 0).toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Market (New)</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#60a5fa', marginTop: '2px' }}>
+                      ${(item.market_price_new || 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                {item.notes && (
+                  <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '4px' }}>Notes</div>
+                    <div style={{ fontSize: '0.88rem', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{item.notes}</div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  <a
+                    href={blUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-secondary"
+                    style={{ flex: 1, textAlign: 'center', textDecoration: 'none', minWidth: '110px' }}
+                  >
+                    🔗 BrickLink
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ flex: 1, minWidth: '100px' }}
+                    onClick={() => {
+                      const target = item;
+                      setDetailItem(null);
+                      handleOpenWishModal(target);
+                    }}
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ flex: 1, minWidth: '100px', backgroundColor: '#dc2626', color: '#fff' }}
+                    onClick={() => handleDeleteWish(item.id)}
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         const itemNum = isSet ? item.set_number : item.fig_number;
         const itemName = isSet ? item.set_name : item.fig_name;
         const shelf = isSet ? item.new_shelf : item.shelf_location;
