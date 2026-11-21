@@ -87,8 +87,6 @@ const buildNotesWithBox = (cleanNotes, hasBox) => {
   return base;
 };
 
-// Normalizes server auto-increment IDs (> 0) and offline temp IDs (-Date.now() < 0)
-// so newly added items always rank highest when sorted by Date Added descending
 const getDateAddedRank = (item) => {
   if (item.created_at) {
     const ts = Date.parse(item.created_at);
@@ -260,6 +258,7 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
         condition,
         has_box: rawHasBox,
         purchase_price: parseMoney(pickCol(r, ['purchase_price', 'cost', 'my cost', 'price', 'paid'], '0')),
+        part_out_value: parseMoney(pickCol(r, ['part_out_value', 'part_out', 'pov'], '0')),
         purchase_dt: pickCol(r, ['purchase_dt', 'purchase_date', 'date', 'purchased'], ''),
         new_shelf: pickCol(r, ['new_shelf', 'shelf', 'shelf_location', 'location', 'bin'], ''),
         store: pickCol(r, ['store', 'source', 'retailer', 'seller'], ''),
@@ -322,7 +321,7 @@ const mapCsvRowsForTarget = (rawRows, targetType) => {
 const SAMPLE_CSV_TEMPLATES = {
   SETS: {
     filename: 'sample_sets_import.csv',
-    content: 'set_number,set_name,theme,year_released,quantity,condition,has_box,purchase_price,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,2017,1,New,Yes,649.99,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n75301,Luke Skywalker X-Wing,Star Wars,2021,1,Used,No,28.00,2026-01-10,Shelf B2,Local Seller,No,Complete with instructions'
+    content: 'set_number,set_name,theme,year_released,quantity,condition,has_box,purchase_price,part_out_value,purchase_dt,new_shelf,store,polybag,item_notes\n75192,Millennium Falcon,Star Wars,2017,1,New,Yes,649.99,1120.00,2025-11-15,Shelf A1,LEGO Store,No,UCS Box\n75301,Luke Skywalker X-Wing,Star Wars,2021,1,Used,No,28.00,64.50,2026-01-10,Shelf B2,Local Seller,No,Complete with instructions'
   },
   MINIFIGS: {
     filename: 'sample_minifigs_import.csv',
@@ -345,7 +344,6 @@ function App() {
   const [pendingQueue, setPendingQueue] = useState(() => readQueue());
   const isFlushingRef = useRef(false);
 
-  // Initialize state immediately from phone's local cache for zero-wait startup
   const [sets, setSets] = useState(() => readCache(CACHE_KEYS.sets, []));
   const [loadingSets, setLoadingSets] = useState(() => readCache(CACHE_KEYS.sets, []).length === 0);
   const [filterPolybag, setFilterPolybag] = useState('ALL');
@@ -368,18 +366,18 @@ function App() {
 
   const [syncStatus, setSyncStatus] = useState('');
 
-  // Default sort: Date Added (newest first)
   const [sortField, setSortField] = useState('date_added');
   const [sortOrder, setSortOrder] = useState('desc');
 
   // Detail Sheet & Image Zoom State
-  const [detailItem, setDetailItem] = useState(null); // { type: 'SET' | 'MINIFIG' | 'WISHLIST', data: item }
+  const [detailItem, setDetailItem] = useState(null);
   const [zoomedImageUrl, setZoomedImageUrl] = useState(null);
+  const [isCalculatingPov, setIsCalculatingPov] = useState(false);
 
   // CSV Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importTargetType, setImportTargetType] = useState('SETS');
-  const [importDuplicateMode, setImportDuplicateMode] = useState('ADD_QTY'); // 'ADD_QTY' | 'SKIP' | 'SEPARATE'
+  const [importDuplicateMode, setImportDuplicateMode] = useState('ADD_QTY');
   const [importFileName, setImportFileName] = useState('');
   const [importParsedRows, setImportParsedRows] = useState([]);
   const [importSkippedCount, setImportSkippedCount] = useState(0);
@@ -391,7 +389,7 @@ function App() {
   const [isLookingUpSet, setIsLookingUpSet] = useState(false);
   const [formData, setFormData] = useState({
     set_number: '', set_name: '', theme: '', year_released: '', quantity: 1, condition: 'New', has_box: '',
-    purchase_price: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
+    purchase_price: 0.0, part_out_value: 0.0, purchase_dt: '', new_shelf: '', item_notes: '', store: '', polybag: 'No'
   });
 
   const [isFigModalOpen, setIsFigModalOpen] = useState(false);
@@ -411,7 +409,7 @@ function App() {
 
   const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
   const [editingSale, setEditingSale] = useState(null);
-  const [saleSourceItem, setSaleSourceItem] = useState(null); // { type: 'SET' | 'MINIFIG', item: obj }
+  const [saleSourceItem, setSaleSourceItem] = useState(null);
   const [deductFromInventory, setDeductFromInventory] = useState(false);
   const [saleFormData, setSaleFormData] = useState({
     item_number: '', item_name: '', item_type: 'SET', sale_date: '',
@@ -579,8 +577,7 @@ function App() {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      // Default to newest first ('desc') when selecting Date Added, Sale Date, or Release Year
-      setSortOrder(field === 'date_added' || field === 'sale_date' || field === 'year_released' ? 'desc' : 'asc');
+      setSortOrder(field === 'date_added' || field === 'sale_date' || field === 'year_released' || field === 'part_out_value' ? 'desc' : 'asc');
     }
   };
 
@@ -688,6 +685,7 @@ function App() {
             set_name: row.set_name || existing.set_name,
             theme: row.theme || existing.theme,
             year_released: row.year_released || existing.year_released,
+            part_out_value: row.part_out_value || existing.part_out_value || 0,
             new_shelf: row.new_shelf || existing.new_shelf,
             store: row.store || existing.store,
             item_notes: row.item_notes || existing.item_notes,
@@ -707,6 +705,7 @@ function App() {
                 quantity: merged.quantity,
                 condition: merged.condition || 'New',
                 purchase_price: merged.purchase_price || 0.0,
+                part_out_value: merged.part_out_value || 0.0,
                 purchase_dt: merged.purchase_dt || null,
                 new_shelf: merged.new_shelf || null,
                 item_notes: merged.item_notes || null,
@@ -905,20 +904,58 @@ function App() {
     if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpSet(true);
     try {
-      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}`);
+      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}?part_out=true`);
       if (res.ok) {
         const data = await res.json();
         setFormData(prev => ({
           ...prev,
           set_name: data.name ? decodeHtml(data.name) : prev.set_name,
           theme: data.theme ? decodeHtml(data.theme) : prev.theme,
-          year_released: data.year_released ? String(data.year_released) : prev.year_released
+          year_released: data.year_released ? String(data.year_released) : prev.year_released,
+          part_out_value: data.part_out_value > 0 ? data.part_out_value : prev.part_out_value
         }));
       }
     } catch (err) {
       console.error("BrickLink set lookup error:", err);
     } finally {
       setIsLookingUpSet(false);
+    }
+  };
+
+  const handleCalculateSetPartOut = async (setItem) => {
+    if (!navigator.onLine || isCalculatingPov) return;
+    setIsCalculatingPov(true);
+    try {
+      let pov = 0;
+      if (setItem.id > 0) {
+        const res = await fetch(`${API_BASE}/sets/${setItem.id}/part-out`, { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          pov = data.part_out_value || 0;
+        }
+      } else {
+        const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(setItem.set_number)}?part_out=true`);
+        if (res.ok) {
+          const data = await res.json();
+          pov = data.part_out_value || 0;
+        }
+      }
+
+      if (pov > 0) {
+        const updatedItem = { ...setItem, part_out_value: pov };
+        const updatedSets = sets.map(s => (s.id === setItem.id ? updatedItem : s));
+        setSets(updatedSets);
+        writeCache(CACHE_KEYS.sets, updatedSets);
+        setDetailItem({ type: 'SET', data: updatedItem });
+        setSyncStatus(`🧩 Part-out value for #${setItem.set_number}: $${pov.toFixed(2)}`);
+      } else {
+        setSyncStatus(`⚠️ No part-out pricing data returned for #${setItem.set_number}.`);
+      }
+    } catch (err) {
+      console.error("Part-out refresh error:", err);
+      setSyncStatus('Error calculating part-out value from BrickLink.');
+    } finally {
+      setIsCalculatingPov(false);
     }
   };
 
@@ -948,7 +985,7 @@ function App() {
     if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpWish(true);
     try {
-      const res = await fetch(`${API_BASE}/lookup/${wishFormData.item_type}/${encodeURIComponent(cleanNum)}`);
+      const res = await fetch(`${API_BASE}/lookup/${wishFormData.item_type}/${encodeURIComponent(cleanNum)}?part_out=false`);
       if (res.ok) {
         const data = await res.json();
         if (data.name) {
@@ -991,6 +1028,7 @@ function App() {
       quantity: updatedItem.quantity || 1,
       condition: nextCondition,
       purchase_price: updatedItem.purchase_price || 0.0,
+      part_out_value: updatedItem.part_out_value || 0.0,
       purchase_dt: updatedItem.purchase_dt || null,
       new_shelf: updatedItem.new_shelf || null,
       item_notes: nextNotes || null,
@@ -1114,6 +1152,7 @@ function App() {
         condition: setItem.condition || 'New',
         has_box: hasBox,
         purchase_price: setItem.purchase_price || 0.0,
+        part_out_value: setItem.part_out_value || 0.0,
         purchase_dt: setItem.purchase_dt || '',
         new_shelf: setItem.new_shelf || '',
         item_notes: cleanNotes,
@@ -1131,6 +1170,7 @@ function App() {
         condition: 'New',
         has_box: '',
         purchase_price: 0.0,
+        part_out_value: 0.0,
         purchase_dt: '',
         new_shelf: '',
         item_notes: '',
@@ -1147,6 +1187,7 @@ function App() {
     return {
       ...formData,
       year_released: Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : null,
+      part_out_value: parseFloat(formData.part_out_value) || 0.0,
       item_notes: packedNotes
     };
   };
@@ -1612,6 +1653,7 @@ function App() {
             quantity: newQty,
             condition: item.condition || 'New',
             purchase_price: item.purchase_price || 0.0,
+            part_out_value: item.part_out_value || 0.0,
             purchase_dt: item.purchase_dt || null,
             new_shelf: item.new_shelf || null,
             item_notes: item.item_notes || null,
@@ -1916,7 +1958,7 @@ function App() {
   const totalSalesCost = filteredSales.reduce((acc, s) => acc + (s.cost_price || 0), 0);
   const overallROI = totalSalesCost > 0 ? ((totalNetProfit / totalSalesCost) * 100).toFixed(1) : '0.0';
 
-  // --- DASHBOARD AGGREGATIONS (ALL COLLECTION DATA) ---
+  // --- DASHBOARD AGGREGATIONS ---
   const allSetsQty = sets.reduce((acc, s) => acc + (s.quantity || 1), 0);
   const allSetsCost = sets.reduce((acc, s) => acc + ((s.purchase_price || 0) * (s.quantity || 1)), 0);
   const allSetsMarket = sets.reduce((acc, s) => {
@@ -1996,7 +2038,7 @@ function App() {
         onChange={(e) => {
           const val = e.target.value;
           setSortField(val);
-          setSortOrder(val === 'date_added' || val === 'sale_date' || val === 'year_released' ? 'desc' : 'asc');
+          setSortOrder(val === 'date_added' || val === 'sale_date' || val === 'year_released' || val === 'part_out_value' ? 'desc' : 'asc');
         }}
       >
         {options.map(opt => (
@@ -2125,6 +2167,7 @@ function App() {
               { value: 'set_name', label: 'Name' },
               { value: 'theme', label: 'Theme' },
               { value: 'market_price', label: 'Market Value' },
+              { value: 'part_out_value', label: 'Part-Out Value' },
               { value: 'purchase_price', label: 'Cost' },
               { value: 'new_shelf', label: 'Shelf' },
               { value: 'purchase_dt', label: 'Purchased' },
@@ -2145,6 +2188,7 @@ function App() {
                     <th onClick={() => handleSort('condition')} style={{ cursor: 'pointer' }}>Cond.{renderSortArrow('condition')}</th>
                     <th onClick={() => handleSort('purchase_price')} style={{ cursor: 'pointer' }}>Cost{renderSortArrow('purchase_price')}</th>
                     <th onClick={() => handleSort('market_price')} style={{ cursor: 'pointer' }}>Market Value{renderSortArrow('market_price')}</th>
+                    <th onClick={() => handleSort('part_out_value')} style={{ cursor: 'pointer' }}>Part-Out{renderSortArrow('part_out_value')}</th>
                     <th onClick={() => handleSort('new_shelf')} style={{ cursor: 'pointer' }}>Shelf{renderSortArrow('new_shelf')}</th>
                     <th onClick={() => handleSort('theme')} style={{ cursor: 'pointer' }}>Theme{renderSortArrow('theme')}</th>
                     <th onClick={() => handleSort('purchase_dt')} style={{ cursor: 'pointer' }}>Purchased{renderSortArrow('purchase_dt')}</th>
@@ -2178,6 +2222,7 @@ function App() {
                         <td>{item.condition || 'N/A'}{condBadge}</td>
                         <td>${(item.purchase_price || 0).toFixed(2)}</td>
                         <td>${activeMarketPrice.toFixed(2)}</td>
+                        <td>{item.part_out_value > 0 ? `$${item.part_out_value.toFixed(2)}` : '-'}</td>
                         <td>{item.new_shelf || '-'}</td>
                         <td>{item.theme || '-'}</td>
                         <td>{item.purchase_dt || '-'}</td>
@@ -2600,7 +2645,7 @@ function App() {
                   {importFileName ? `📄 ${importFileName}` : 'Tap here to choose a .CSV file'}
                 </p>
                 <small style={{ opacity: 0.8 }}>
-                  Accepts set_number / fig_number / item_number, name, theme, year_released, quantity, condition, has_box, purchase_price, shelf, store, notes
+                  Accepts set_number / fig_number / item_number, name, theme, year_released, quantity, condition, has_box, purchase_price, part_out_value, shelf, store, notes
                 </small>
               </div>
             </div>
@@ -2649,6 +2694,7 @@ function App() {
                     {r.year_released ? ` (${r.year_released})` : ''}
                     {r.quantity ? ` (Qty: ${r.quantity}, ${r.condition || 'New'}${r.has_box ? `, Box: ${r.has_box}` : ''})` : ''}
                     {r.purchase_price ? ` · $${r.purchase_price.toFixed(2)}` : ''}
+                    {r.part_out_value ? ` · POV: $${r.part_out_value.toFixed(2)}` : ''}
                     {r.sale_price ? ` · Sold: $${r.sale_price.toFixed(2)}` : ''}
                   </div>
                 ))}
@@ -2868,6 +2914,8 @@ function App() {
         const gain = totalPosMarket - totalPosCost;
         const roiPct = totalPosCost > 0 ? ((gain / totalPosCost) * 100).toFixed(1) : null;
         const yearReleased = isSet && Number(item.year_released) > 0 ? item.year_released : null;
+        const pov = isSet ? (item.part_out_value || 0) : 0;
+        const povRatio = pov > 0 && unitMarket > 0 ? (pov / unitMarket).toFixed(2) : null;
 
         return (
           <div
@@ -3174,7 +3222,7 @@ function App() {
                   borderRadius: '12px',
                   backgroundColor: 'rgba(15,23,42,0.65)',
                   border: '1px solid rgba(255,255,255,0.12)',
-                  marginBottom: '14px',
+                  marginBottom: '10px',
                   textAlign: 'center'
                 }}
               >
@@ -3212,12 +3260,54 @@ function App() {
                   backgroundColor: 'rgba(255,255,255,0.05)',
                   fontSize: '0.82rem',
                   color: '#cbd5e1',
-                  marginBottom: '14px'
+                  marginBottom: isSet ? '10px' : '14px'
                 }}
               >
                 <span>BrickLink Avg New: <strong style={{ color: '#fff' }}>${(item.market_price_new || 0).toFixed(2)}</strong></span>
                 <span>Avg Used: <strong style={{ color: '#fff' }}>${(item.market_price_used || 0).toFixed(2)}</strong></span>
               </div>
+
+              {/* --- PART-OUT VALUE ROW FOR SETS --- */}
+              {isSet && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(16,185,129,0.12)',
+                    border: '1px solid rgba(16,185,129,0.35)',
+                    fontSize: '0.84rem',
+                    color: '#e2e8f0',
+                    marginBottom: '14px',
+                    gap: '10px'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#6ee7b7', fontWeight: 600 }}>
+                      🧩 BrickLink Part-Out Value
+                    </div>
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#ffffff', marginTop: '2px' }}>
+                      {pov > 0 ? `$${pov.toFixed(2)}` : 'Not calculated yet'}
+                      {povRatio && (
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6ee7b7', marginLeft: '8px' }}>
+                          ({povRatio}x {currentCondition})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!isOnline || isCalculatingPov}
+                    onClick={() => handleCalculateSetPartOut(item)}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {isCalculatingPov ? 'Calculating...' : pov > 0 ? '🔄 Refresh POV' : '⚡ Calc POV'}
+                  </button>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem', marginBottom: '14px' }}>
                 <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
@@ -3396,21 +3486,25 @@ function App() {
                   <input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} />
                 </div>
                 <div className="form-group">
-                  <label>Purchase Date</label>
-                  <input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})} />
+                  <label>Part-Out Value ($)</label>
+                  <input type="number" step="0.01" value={formData.part_out_value} onChange={(e) => setFormData({...formData, part_out_value: parseFloat(e.target.value) || 0})} />
                 </div>
               </div>
               <div className="form-row">
+                <div className="form-group">
+                  <label>Purchase Date</label>
+                  <input type="date" value={formData.purchase_dt} onChange={(e) => setFormData({...formData, purchase_dt: e.target.value})} />
+                </div>
                 <div className="form-group">
                   <label>Shelf Location</label>
                   <input type="text" value={formData.new_shelf} onChange={(e) => setFormData({...formData, new_shelf: e.target.value})} />
                 </div>
+              </div>
+              <div className="form-row">
                 <div className="form-group">
                   <label>Store / Source</label>
                   <input type="text" value={formData.store} onChange={(e) => setFormData({...formData, store: e.target.value})} />
                 </div>
-              </div>
-              <div className="form-row">
                 <div className="form-group">
                   <label>Polybag?</label>
                   <select value={formData.polybag} onChange={(e) => setFormData({...formData, polybag: e.target.value})}>
@@ -3418,14 +3512,14 @@ function App() {
                     <option value="Yes">Yes</option>
                   </select>
                 </div>
-                <div className="form-group">
-                  <label>Has Box?</label>
-                  <select value={formData.has_box} onChange={(e) => setFormData({...formData, has_box: e.target.value})}>
-                    <option value="">{formData.condition === 'New' ? 'Yes (Sealed)' : 'Not Specified'}</option>
-                    <option value="Yes">Yes (Box Included)</option>
-                    <option value="No">No (Loose / No Box)</option>
-                  </select>
-                </div>
+              </div>
+              <div className="form-group">
+                <label>Has Box?</label>
+                <select value={formData.has_box} onChange={(e) => setFormData({...formData, has_box: e.target.value})}>
+                  <option value="">{formData.condition === 'New' ? 'Yes (Sealed)' : 'Not Specified'}</option>
+                  <option value="Yes">Yes (Box Included)</option>
+                  <option value="No">No (Loose / No Box)</option>
+                </select>
               </div>
               <div className="form-group">
                 <label>Notes</label>
