@@ -64,6 +64,15 @@ const getBrickLinkCatalogUrl = (itemNumber, isMinifig = false) => {
   return `https://www.bricklink.com/v2/catalog/catalogitem.page?S=${encodeURIComponent(formatted)}`;
 };
 
+const getBrickLinkPartOutUrl = (itemNumber, condition = 'New') => {
+  const clean = String(itemNumber || '').trim();
+  if (!clean) return 'https://www.bricklink.com/catalogPOV.asp';
+  const [baseNo, seqRaw] = clean.split('-');
+  const seq = seqRaw || '1';
+  const condCode = String(condition || '').toLowerCase() === 'used' ? 'U' : 'N';
+  return `https://www.bricklink.com/catalogPOV.asp?itemType=S&itemNo=${encodeURIComponent(baseNo.trim())}&itemSeq=${encodeURIComponent(seq.trim())}&itemQty=1&breakType=M&itemCondition=${condCode}`;
+};
+
 // Extract & pack [Box: Yes] / [Box: No] tag inside item_notes so zero backend schema changes are required
 const parseSetBoxInfo = (setItem) => {
   const rawNotes = String(setItem?.item_notes || '');
@@ -372,7 +381,6 @@ function App() {
   // Detail Sheet & Image Zoom State
   const [detailItem, setDetailItem] = useState(null);
   const [zoomedImageUrl, setZoomedImageUrl] = useState(null);
-  const [isCalculatingPov, setIsCalculatingPov] = useState(false);
 
   // CSV Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -904,58 +912,20 @@ function App() {
     if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpSet(true);
     try {
-      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}?part_out=true`);
+      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}?part_out=false`);
       if (res.ok) {
         const data = await res.json();
         setFormData(prev => ({
           ...prev,
           set_name: data.name ? decodeHtml(data.name) : prev.set_name,
           theme: data.theme ? decodeHtml(data.theme) : prev.theme,
-          year_released: data.year_released ? String(data.year_released) : prev.year_released,
-          part_out_value: data.part_out_value > 0 ? data.part_out_value : prev.part_out_value
+          year_released: data.year_released ? String(data.year_released) : prev.year_released
         }));
       }
     } catch (err) {
       console.error("BrickLink set lookup error:", err);
     } finally {
       setIsLookingUpSet(false);
-    }
-  };
-
-  const handleCalculateSetPartOut = async (setItem) => {
-    if (!navigator.onLine || isCalculatingPov) return;
-    setIsCalculatingPov(true);
-    try {
-      let pov = 0;
-      if (setItem.id > 0) {
-        const res = await fetch(`${API_BASE}/sets/${setItem.id}/part-out`, { method: 'POST' });
-        if (res.ok) {
-          const data = await res.json();
-          pov = data.part_out_value || 0;
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(setItem.set_number)}?part_out=true`);
-        if (res.ok) {
-          const data = await res.json();
-          pov = data.part_out_value || 0;
-        }
-      }
-
-      if (pov > 0) {
-        const updatedItem = { ...setItem, part_out_value: pov };
-        const updatedSets = sets.map(s => (s.id === setItem.id ? updatedItem : s));
-        setSets(updatedSets);
-        writeCache(CACHE_KEYS.sets, updatedSets);
-        setDetailItem({ type: 'SET', data: updatedItem });
-        setSyncStatus(`🧩 Part-out value for #${setItem.set_number}: $${pov.toFixed(2)}`);
-      } else {
-        setSyncStatus(`⚠️ No part-out pricing data returned for #${setItem.set_number}.`);
-      }
-    } catch (err) {
-      console.error("Part-out refresh error:", err);
-      setSyncStatus('Error calculating part-out value from BrickLink.');
-    } finally {
-      setIsCalculatingPov(false);
     }
   };
 
@@ -3281,7 +3251,8 @@ function App() {
                     fontSize: '0.84rem',
                     color: '#e2e8f0',
                     marginBottom: '14px',
-                    gap: '10px'
+                    gap: '8px',
+                    flexWrap: 'wrap'
                   }}
                 >
                   <div>
@@ -3289,7 +3260,7 @@ function App() {
                       🧩 BrickLink Part-Out Value
                     </div>
                     <div style={{ fontSize: '1rem', fontWeight: 700, color: '#ffffff', marginTop: '2px' }}>
-                      {pov > 0 ? `$${pov.toFixed(2)}` : 'Not calculated yet'}
+                      {pov > 0 ? `$${pov.toFixed(2)}` : 'Not set yet'}
                       {povRatio && (
                         <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6ee7b7', marginLeft: '8px' }}>
                           ({povRatio}x {currentCondition})
@@ -3297,15 +3268,29 @@ function App() {
                       )}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={!isOnline || isCalculatingPov}
-                    onClick={() => handleCalculateSetPartOut(item)}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    {isCalculatingPov ? 'Calculating...' : pov > 0 ? '🔄 Refresh POV' : '⚡ Calc POV'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <a
+                      href={getBrickLinkPartOutUrl(itemNum, currentCondition)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-secondary btn-sm"
+                      style={{ textDecoration: 'none', whiteSpace: 'nowrap' }}
+                    >
+                      📊 BL Part-Out
+                    </a>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      style={{ whiteSpace: 'nowrap' }}
+                      onClick={() => {
+                        const target = item;
+                        setDetailItem(null);
+                        handleOpenModal(target);
+                      }}
+                    >
+                      ✏️ Set POV
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -3486,7 +3471,19 @@ function App() {
                   <input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} />
                 </div>
                 <div className="form-group">
-                  <label>Part-Out Value ($)</label>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Part-Out Value ($)</span>
+                    {formData.set_number && (
+                      <a
+                        href={getBrickLinkPartOutUrl(formData.set_number, formData.condition)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none' }}
+                      >
+                        📊 Check on BL
+                      </a>
+                    )}
+                  </label>
                   <input type="number" step="0.01" value={formData.part_out_value} onChange={(e) => setFormData({...formData, part_out_value: parseFloat(e.target.value) || 0})} />
                 </div>
               </div>
