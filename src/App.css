@@ -569,7 +569,7 @@ body {
   /* Thumbnail pinned to left spanning rows */
   .inventory-table td.img-cell {
     grid-column: 1;
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 5;
     align-self: start;
   }
 
@@ -594,12 +594,13 @@ body {
     color: var(--text-primary);
   }
 
-  /* Metadata pills (Qty, Cond, Cost, Market Value, Shelf) */
+  /* Metadata rows on Sets (cols 4-9) & Minifigs (cols 4-9) */
   .inventory-table td:nth-child(4),
   .inventory-table td:nth-child(5),
   .inventory-table td:nth-child(6),
   .inventory-table td:nth-child(7),
-  .inventory-table td:nth-child(8) {
+  .inventory-table td:nth-child(8),
+  .inventory-table td:nth-child(9) {
     grid-column: 2;
     font-size: 0.78rem;
     color: var(--text-secondary);
@@ -609,19 +610,44 @@ body {
   .inventory-table td:nth-child(4)::before { content: "Qty: "; font-weight: 600; }
   .inventory-table td:nth-child(6)::before { content: "Paid: "; font-weight: 600; }
   .inventory-table td:nth-child(7)::before { content: "Val: "; font-weight: 600; color: var(--accent-success); }
-  .inventory-table td:nth-child(8)::before { content: "Loc: "; font-weight: 600; }
+  .inventory-table td:nth-child(8)::before { content: "Part-Out: "; font-weight: 600; }
+  .inventory-table td:nth-child(9)::before { content: "Shelf: "; font-weight: 600; }
 
   /* Hide low-priority secondary columns on mobile card to keep it uncluttered */
-  .inventory-table td:nth-child(9),
   .inventory-table td:nth-child(10),
-  .inventory-table td:nth-child(11) {
+  .inventory-table td:nth-child(11),
+  .inventory-table td:nth-child(12),
+  .inventory-table td:nth-child(13) {
     display: none;
+  }
+
+  /* Wishlist-specific card labels (9 columns total: actions-cell is 9th) */
+  .inventory-table tr:has(td:nth-child(9).actions-cell) td:nth-child(4)::before {
+    content: "Type: ";
+    font-weight: 600;
+  }
+  .inventory-table tr:has(td:nth-child(9).actions-cell) td:nth-child(5)::before {
+    content: "Priority: ";
+    font-weight: 600;
+  }
+  .inventory-table tr:has(td:nth-child(9).actions-cell) td:nth-child(6)::before {
+    content: "Target: ";
+    font-weight: 600;
+  }
+  .inventory-table tr:has(td:nth-child(9).actions-cell) td:nth-child(7)::before {
+    content: "Val: ";
+    font-weight: 600;
+    color: var(--accent-success);
+  }
+  .inventory-table tr:has(td:nth-child(9).actions-cell) td:nth-child(8)::before {
+    content: "Notes: ";
+    font-weight: 600;
   }
 
   /* Edit / Delete / Quick-Sell buttons stacked on right edge */
   .inventory-table td.actions-cell {
     grid-column: 3;
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 5;
     flex-direction: column;
     justify-content: center;
     gap: 6px;
