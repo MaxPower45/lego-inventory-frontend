@@ -591,14 +591,20 @@ function App() {
 
   const backfillMissingSetMetadata = async (currentSetsList) => {
     const targetSets = (currentSetsList || []).filter(
-      s => s.id > 0 && s.set_number && (!(Number(s.year_released) > 0) || !String(s.theme || '').trim())
+      s =>
+        s.id > 0 &&
+        s.set_number &&
+        (!(Number(s.year_released) > 0) ||
+          !String(s.theme || '').trim() ||
+          !(Number(s.part_out_value) > 0))
     );
     if (!targetSets.length) return 0;
 
-    // Group rows by normalized set_number so each unique set is looked up only once
+    // Group rows by normalized set_number + condition so each unique set/condition is looked up only once
     const groups = new Map();
     targetSets.forEach(s => {
-      const key = String(s.set_number).trim().toLowerCase();
+      const cond = (s.condition || 'New').trim().toLowerCase();
+      const key = `${String(s.set_number).trim().toLowerCase()}__${cond}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(s);
     });
@@ -609,23 +615,35 @@ function App() {
     for (let i = 0; i < uniqueKeys.length; i++) {
       const key = uniqueKeys[i];
       const matchingRows = groups.get(key);
-      const sampleSetNum = String(matchingRows[0].set_number).trim();
-      setSyncStatus(`📅 Filling missing release years & themes (${i + 1}/${uniqueKeys.length} unique sets)...`);
+      const sampleRow = matchingRows[0];
+      const sampleSetNum = String(sampleRow.set_number).trim();
+      const sampleCond = sampleRow.condition || 'New';
+      const needsPov = matchingRows.some(r => !(Number(r.part_out_value) > 0));
+      setSyncStatus(`📅 Updating year, theme & part-out values (${i + 1}/${uniqueKeys.length})...`);
 
       try {
-        const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(sampleSetNum)}?part_out=false`);
+        const res = await fetch(
+          `${API_BASE}/lookup/SET/${encodeURIComponent(sampleSetNum)}?part_out=${needsPov ? 'true' : 'false'}&condition=${encodeURIComponent(sampleCond)}`
+        );
         if (!res.ok) continue;
         const info = await res.json();
         const fetchedYear = parseReleaseYear(info.year_released);
         const fetchedTheme = info.theme ? decodeHtml(info.theme).trim() : '';
+        const fetchedPov = parseFloat(info.part_out_value);
+        const validPov = Number.isFinite(fetchedPov) && fetchedPov > 0 ? fetchedPov : 0;
 
-        if (!fetchedYear && !fetchedTheme) continue;
+        if (!fetchedYear && !fetchedTheme && !validPov) continue;
 
         for (const row of matchingRows) {
           const nextYear = Number(row.year_released) > 0 ? Number(row.year_released) : fetchedYear;
           const nextTheme = String(row.theme || '').trim() || fetchedTheme;
-          if (nextYear === (Number(row.year_released) > 0 ? Number(row.year_released) : null) &&
-              nextTheme === String(row.theme || '').trim()) {
+          const nextPov = Number(row.part_out_value) > 0 ? Number(row.part_out_value) : validPov;
+
+          const yearChanged = nextYear !== (Number(row.year_released) > 0 ? Number(row.year_released) : null);
+          const themeChanged = nextTheme !== String(row.theme || '').trim();
+          const povChanged = nextPov !== (Number(row.part_out_value) > 0 ? Number(row.part_out_value) : 0);
+
+          if (!yearChanged && !themeChanged && !povChanged) {
             continue;
           }
 
@@ -637,7 +655,7 @@ function App() {
             quantity: row.quantity || 1,
             condition: row.condition || 'New',
             purchase_price: row.purchase_price || 0.0,
-            part_out_value: row.part_out_value || 0.0,
+            part_out_value: nextPov || 0.0,
             purchase_dt: row.purchase_dt || null,
             new_shelf: row.new_shelf || null,
             item_notes: row.item_notes || null,
@@ -693,8 +711,8 @@ function App() {
     await Promise.all([fetchSets(), fetchMinifigs(), fetchWishlist(), fetchSales()]);
     setSyncStatus(
       backfilledCount > 0
-        ? `✅ ${baseMsg} Updated release year/theme on ${backfilledCount} set(s).`
-        : `${baseMsg} All release years & themes are up to date.`
+        ? `✅ ${baseMsg} Updated year, theme & part-out value on ${backfilledCount} set(s).`
+        : `✅ ${baseMsg} 6-mo New/Used averages, years, themes & part-out values are up to date.`
     );
   };
 
@@ -999,19 +1017,24 @@ function App() {
     return txt.value;
   };
 
-  const handleLookupSet = async () => {
+  const handleLookupSet = async (forcePartOut = true) => {
     const cleanNum = formData.set_number.trim();
     if (!cleanNum || !navigator.onLine) return;
     setIsLookingUpSet(true);
     try {
-      const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}?part_out=false`);
+      const condParam = encodeURIComponent(formData.condition || 'New');
+      const res = await fetch(
+        `${API_BASE}/lookup/SET/${encodeURIComponent(cleanNum)}?part_out=${forcePartOut ? 'true' : 'false'}&condition=${condParam}`
+      );
       if (res.ok) {
         const data = await res.json();
+        const fetchedPov = parseFloat(data.part_out_value);
         setFormData(prev => ({
           ...prev,
           set_name: data.name ? decodeHtml(data.name) : prev.set_name,
           theme: data.theme ? decodeHtml(data.theme) : prev.theme,
-          year_released: data.year_released ? String(data.year_released) : prev.year_released
+          year_released: data.year_released ? String(data.year_released) : prev.year_released,
+          part_out_value: Number.isFinite(fetchedPov) && fetchedPov > 0 ? fetchedPov : prev.part_out_value
         }));
       }
     } catch (err) {
@@ -3325,8 +3348,8 @@ function App() {
                   marginBottom: isSet ? '10px' : '14px'
                 }}
               >
-                <span>BrickLink Avg New: <strong style={{ color: '#fff' }}>${(item.market_price_new || 0).toFixed(2)}</strong></span>
-                <span>Avg Used: <strong style={{ color: '#fff' }}>${(item.market_price_used || 0).toFixed(2)}</strong></span>
+                <span>BL 6-Mo Avg New: <strong style={{ color: '#fff' }}>${(item.market_price_new || 0).toFixed(2)}</strong></span>
+                <span>6-Mo Avg Used: <strong style={{ color: '#fff' }}>${(item.market_price_used || 0).toFixed(2)}</strong></span>
               </div>
 
               {/* --- PART-OUT VALUE ROW FOR SETS --- */}
@@ -3360,7 +3383,62 @@ function App() {
                       )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-success btn-sm"
+                      style={{ whiteSpace: 'nowrap' }}
+                      disabled={!isOnline}
+                      onClick={async () => {
+                        if (!navigator.onLine) return;
+                        setSyncStatus(`🧩 Fetching Part-Out Value for ${itemNum}...`);
+                        try {
+                          const res = await fetch(
+                            `${API_BASE}/lookup/SET/${encodeURIComponent(itemNum)}?part_out=true&condition=${encodeURIComponent(currentCondition)}`
+                          );
+                          if (res.ok) {
+                            const info = await res.json();
+                            const fetchedPov = parseFloat(info.part_out_value);
+                            if (Number.isFinite(fetchedPov) && fetchedPov > 0) {
+                              const updatedItem = { ...item, part_out_value: fetchedPov };
+                              const updatedSets = sets.map(s => s.id === item.id ? updatedItem : s);
+                              setSets(updatedSets);
+                              writeCache(CACHE_KEYS.sets, updatedSets);
+                              setDetailItem({ type: 'SET', data: updatedItem });
+                              if (item.id > 0) {
+                                await fetch(`${API_BASE}/sets/${item.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    set_number: updatedItem.set_number,
+                                    set_name: updatedItem.set_name,
+                                    theme: updatedItem.theme || null,
+                                    year_released: updatedItem.year_released > 0 ? updatedItem.year_released : null,
+                                    quantity: updatedItem.quantity || 1,
+                                    condition: updatedItem.condition || 'New',
+                                    purchase_price: updatedItem.purchase_price || 0.0,
+                                    part_out_value: fetchedPov,
+                                    purchase_dt: updatedItem.purchase_dt || null,
+                                    new_shelf: updatedItem.new_shelf || null,
+                                    item_notes: updatedItem.item_notes || null,
+                                    store: updatedItem.store || null,
+                                    polybag: updatedItem.polybag || 'No'
+                                  })
+                                });
+                                fetchSets();
+                              }
+                              setSyncStatus(`✅ Updated Part-Out Value for ${itemNum}: $${fetchedPov.toFixed(2)}`);
+                            } else {
+                              setSyncStatus(`⚠️ BrickLink returned $0.00 Part-Out Value for ${itemNum}.`);
+                            }
+                          }
+                        } catch (err) {
+                          setSyncStatus(`⚠️ Error fetching Part-Out Value for ${itemNum}.`);
+                        }
+                      }}
+                    >
+                      ⚡ Auto-Fetch
+                    </button>
                     <a
                       href={getBrickLinkPartOutUrl(itemNum, currentCondition)}
                       target="_blank"
@@ -3380,7 +3458,7 @@ function App() {
                         handleOpenModal(target);
                       }}
                     >
-                      ✏️ Set POV
+                      ✏️ Edit
                     </button>
                   </div>
                 </div>
@@ -3508,12 +3586,12 @@ function App() {
                     placeholder="e.g. 75192"
                     value={formData.set_number} 
                     onChange={(e) => setFormData({...formData, set_number: e.target.value})} 
-                    onBlur={handleLookupSet}
+                    onBlur={() => handleLookupSet(true)}
                   />
                   <button 
                     type="button" 
                     className="btn btn-secondary" 
-                    onClick={handleLookupSet}
+                    onClick={() => handleLookupSet(true)}
                     disabled={isLookingUpSet || !formData.set_number || !isOnline}
                   >
                     {isLookingUpSet ? '...' : '🔍 Lookup'}
@@ -3563,17 +3641,35 @@ function App() {
                   <input type="number" step="0.01" value={formData.purchase_price} onChange={(e) => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} />
                 </div>
                 <div className="form-group">
-                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                     <span>Part-Out Value ($)</span>
                     {formData.set_number && (
-                      <a
-                        href={getBrickLinkPartOutUrl(formData.set_number, formData.condition)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none' }}
-                      >
-                        📊 Check on BL
-                      </a>
+                      <span style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleLookupSet(true)}
+                          disabled={isLookingUpSet || !isOnline}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            fontSize: '0.75rem',
+                            color: '#4ade80',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {isLookingUpSet ? '...' : '⚡ Auto-Fetch'}
+                        </button>
+                        <a
+                          href={getBrickLinkPartOutUrl(formData.set_number, formData.condition)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '0.75rem', color: '#60a5fa', textDecoration: 'none' }}
+                        >
+                          📊 BL POV
+                        </a>
+                      </span>
                     )}
                   </label>
                   <input type="number" step="0.01" value={formData.part_out_value} onChange={(e) => setFormData({...formData, part_out_value: parseFloat(e.target.value) || 0})} />
