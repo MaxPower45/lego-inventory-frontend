@@ -613,7 +613,7 @@ function App() {
       activeTab === 'wishlist' ? 'WISHLIST' :
       activeTab === 'sales' ? 'SALES' : 'SETS';
     setImportTargetType(defaultTarget);
-    setImportDuplicateMode('ADD_QTY');
+    setImportDuplicateMode('SEPARATE');
     setImportFileName('');
     setImportParsedRows([]);
     setImportSkippedCount(0);
@@ -1256,6 +1256,23 @@ function App() {
       enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
       setSyncStatus('📴 Server unreachable — delete queued for sync.');
     }
+  };
+
+  const handleClearAllSets = async () => {
+    if (!window.confirm(`Delete all ${sets.length} sets from the database?`)) return;
+    setSyncStatus('Clearing all sets...');
+    const idsToDelete = sets.map(s => s.id).filter(id => id > 0);
+    setSets([]);
+    writeCache(CACHE_KEYS.sets, []);
+    for (const id of idsToDelete) {
+      try {
+        await fetch(`${API_BASE}/sets/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Delete failed for id:', id);
+      }
+    }
+    await fetchSets();
+    setSyncStatus('✅ All sets cleared.');
   };
 
   const handleQuickSellSet = (setItem) => {
@@ -2144,6 +2161,7 @@ function App() {
               { value: 'quantity', label: 'Qty' }
             ])}
             <button className="btn btn-success" onClick={() => handleOpenModal()}>+ Add Set</button>
+            <button className="btn btn-danger" style={{ backgroundColor: '#dc2626', color: '#fff' }} onClick={handleClearAllSets}>🗑️ Clear All</button>
           </section>
 
           {loadingSets ? <div className="loading-spinner">Loading inventory...</div> : (
