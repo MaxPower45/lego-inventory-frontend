@@ -589,21 +589,113 @@ function App() {
     }
   };
 
+  const backfillMissingSetMetadata = async (currentSetsList) => {
+    const targetSets = (currentSetsList || []).filter(
+      s => s.id > 0 && s.set_number && (!(Number(s.year_released) > 0) || !String(s.theme || '').trim())
+    );
+    if (!targetSets.length) return 0;
+
+    // Group rows by normalized set_number so each unique set is looked up only once
+    const groups = new Map();
+    targetSets.forEach(s => {
+      const key = String(s.set_number).trim().toLowerCase();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    });
+
+    const uniqueKeys = Array.from(groups.keys());
+    let updatedRowsCount = 0;
+
+    for (let i = 0; i < uniqueKeys.length; i++) {
+      const key = uniqueKeys[i];
+      const matchingRows = groups.get(key);
+      const sampleSetNum = String(matchingRows[0].set_number).trim();
+      setSyncStatus(`📅 Filling missing release years & themes (${i + 1}/${uniqueKeys.length} unique sets)...`);
+
+      try {
+        const res = await fetch(`${API_BASE}/lookup/SET/${encodeURIComponent(sampleSetNum)}?part_out=false`);
+        if (!res.ok) continue;
+        const info = await res.json();
+        const fetchedYear = parseReleaseYear(info.year_released);
+        const fetchedTheme = info.theme ? decodeHtml(info.theme).trim() : '';
+
+        if (!fetchedYear && !fetchedTheme) continue;
+
+        for (const row of matchingRows) {
+          const nextYear = Number(row.year_released) > 0 ? Number(row.year_released) : fetchedYear;
+          const nextTheme = String(row.theme || '').trim() || fetchedTheme;
+          if (nextYear === (Number(row.year_released) > 0 ? Number(row.year_released) : null) &&
+              nextTheme === String(row.theme || '').trim()) {
+            continue;
+          }
+
+          const payload = {
+            set_number: row.set_number,
+            set_name: row.set_name,
+            theme: nextTheme || null,
+            year_released: nextYear || null,
+            quantity: row.quantity || 1,
+            condition: row.condition || 'New',
+            purchase_price: row.purchase_price || 0.0,
+            part_out_value: row.part_out_value || 0.0,
+            purchase_dt: row.purchase_dt || null,
+            new_shelf: row.new_shelf || null,
+            item_notes: row.item_notes || null,
+            store: row.store || null,
+            polybag: row.polybag || 'No'
+          };
+
+          const putRes = await fetch(`${API_BASE}/sets/${row.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (putRes.ok) updatedRowsCount++;
+        }
+      } catch (err) {
+        console.warn(`Metadata lookup failed for ${sampleSetNum}:`, err);
+      }
+    }
+
+    return updatedRowsCount;
+  };
+
   const handleSync = async () => {
     if (!navigator.onLine) {
       setSyncStatus('📴 You are offline — changes are queued safely on your phone.');
       return;
     }
     await flushOfflineQueue(false);
-    setSyncStatus('Syncing with BrickLink API & updating local phone cache...');
+    setSyncStatus('Syncing prices with BrickLink API...');
+    let baseMsg = 'Sync completed & saved offline.';
     try {
       const res = await fetch(`${API_BASE}/sync-bricklink`, { method: 'POST' });
       const data = await res.json();
-      setSyncStatus(data.message || 'Sync completed & saved offline.');
-      await Promise.all([fetchSets(), fetchMinifigs(), fetchWishlist(), fetchSales()]);
+      if (data.message) baseMsg = data.message;
     } catch (err) {
       setSyncStatus('Error syncing with BrickLink (offline cache preserved).');
+      return;
     }
+
+    let latestSets = sets;
+    try {
+      const freshRes = await fetch(`${API_BASE}/sets`);
+      if (freshRes.ok) {
+        latestSets = await freshRes.json();
+        setSets(latestSets);
+        writeCache(CACHE_KEYS.sets, latestSets);
+      }
+    } catch (err) {
+      console.warn('Could not refresh sets before metadata backfill:', err);
+    }
+
+    const backfilledCount = await backfillMissingSetMetadata(latestSets);
+    await Promise.all([fetchSets(), fetchMinifigs(), fetchWishlist(), fetchSales()]);
+    setSyncStatus(
+      backfilledCount > 0
+        ? `✅ ${baseMsg} Updated release year/theme on ${backfilledCount} set(s).`
+        : `${baseMsg} All release years & themes are up to date.`
+    );
   };
 
   // --- CSV IMPORT HANDLERS ---
@@ -1256,23 +1348,6 @@ function App() {
       enqueueOfflineAction({ endpoint: `/sets/${id}`, method: 'DELETE', label: `Delete set #${id}` });
       setSyncStatus('📴 Server unreachable — delete queued for sync.');
     }
-  };
-
-  const handleClearAllSets = async () => {
-    if (!window.confirm(`Delete all ${sets.length} sets from the database?`)) return;
-    setSyncStatus('Clearing all sets...');
-    const idsToDelete = sets.map(s => s.id).filter(id => id > 0);
-    setSets([]);
-    writeCache(CACHE_KEYS.sets, []);
-    for (const id of idsToDelete) {
-      try {
-        await fetch(`${API_BASE}/sets/${id}`, { method: 'DELETE' });
-      } catch (err) {
-        console.warn('Delete failed for id:', id);
-      }
-    }
-    await fetchSets();
-    setSyncStatus('✅ All sets cleared.');
   };
 
   const handleQuickSellSet = (setItem) => {
@@ -2161,7 +2236,6 @@ function App() {
               { value: 'quantity', label: 'Qty' }
             ])}
             <button className="btn btn-success" onClick={() => handleOpenModal()}>+ Add Set</button>
-            <button className="btn btn-danger" style={{ backgroundColor: '#dc2626', color: '#fff' }} onClick={handleClearAllSets}>🗑️ Clear All</button>
           </section>
 
           {loadingSets ? <div className="loading-spinner">Loading inventory...</div> : (
